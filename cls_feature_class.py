@@ -188,6 +188,7 @@ class FeatureClass:
         return np.concatenate((linear_spectra, phase_vector), axis=-1)
 
     def _get_spectrogram_for_file(self, audio_filename):
+        
         audio_in, fs = self._load_audio(audio_filename)
 
         nb_feat_frames = int(len(audio_in) / float(self._hop_len))
