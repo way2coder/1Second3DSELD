@@ -2,7 +2,8 @@
 notes/
 
 
-
+# cache
+__pycache__/
 
 # temp file 
 models_audio/
