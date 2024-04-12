@@ -52,12 +52,14 @@ This repository consists of multiple Python scripts forming one big architecture
 * The `cls_data_generator.py` script provides feature + label data in generator mode for training.
 * The `seldnet_model.py` script implements the SELDnet architecture.
 * The `SELD_evaluation_metrics.py` script implements the metrics for joint evaluation of detection and localization.
-* The `train_seldnet.py` is a wrapper script that trains the SELDnet. The training stops when the SELD error (check paper) stops improving.
+* The `run.py` is a wrapper script that trains the model and calculate the metrics for each test dataset. The training stops when the SELD error (check paper) stops improving.
 * The `cls_compute_seld_results.py` script computes the metrics results on your DCASE output format files. 
+* The `models/` datafolder contains some baseline models.
+* The `criterions.py` encompasses some custome loss functions which comprises multi-accdoa and 
 
 ### Prerequisites
 
-The provided codebase has been tested on python 3.8.11 and torch 2.2.1
+The provided codebase has been tested on python 3.10.11 and torch 2.2.1
 
 
 ### Training the SELDnet
@@ -87,7 +89,7 @@ python3 train_seldnet.py <task-id> <job-id>
 
 * To get baseline results for the Ambisonic format, run the following command
 ```
-python3 train_seldnet.py 3
+python3 run.py 3
 ```
 
 ## Results on development dataset

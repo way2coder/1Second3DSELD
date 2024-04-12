@@ -1,24 +1,50 @@
 #
-# A wrapper script that trains the SELDnet. The training stops when the early stopping metric - SELD error stops improving.
+# A wrapper script that trains model. The training stops when the early stopping metric - SELD error stops improving.
 #
 
 import os
 import sys
-import numpy as np
-import matplotlib.pyplot as plot
-import cls_feature_class
-import cls_data_generator
-import parameters
+import json
+from argparse import ArgumentParser, Namespace
+import hashlib
 import time
 from time import gmtime, strftime
+from IPython import embed
+import logging
+
+import numpy as np
+import matplotlib.pyplot as plot
+plot.switch_backend('agg')
 import torch
 import torch.nn as nn
 import torch.optim as optim
-plot.switch_backend('agg')
-from IPython import embed
+
+import cls_feature_class
+import cls_data_generator
+import parameters
 from cls_compute_seld_results import ComputeSELDResults, reshape_3Dto2D
 from SELD_evaluation_metrics import distance_between_cartesian_coordinates
-import seldnet_model 
+from models import models
+from criterions import MSELoss_ADPIT
+def init_logging_file(unique_hash_str):
+    '''initiate the logging features, and the results will all dumped into results_audio/{unique_hash_str}'''
+    os.makedirs(unique_hash_str, exist_ok=True)
+    log_file = os.path.join(unique_hash_str, 'results_logs.log')
+    logging.basicConfig(level=logging.INFO, filename=log_file, filemode='a', 
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(formatter)
+    logging.getLogger('').addHandler(console_handler)
+
+
+def get_experiment_hash(params):
+    """Generates a unique hash-value depending on the provided experimental parameters."""
+    return hashlib.md5(
+        json.dumps(params, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
 
 def get_accdoa_labels(accdoa_in, nb_classes):
     x, y, z = accdoa_in[:, :, :nb_classes], accdoa_in[:, :, nb_classes:2*nb_classes], accdoa_in[:, :, 2*nb_classes:]
@@ -179,8 +205,8 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
 
 def train_epoch(data_generator, optimizer, model, criterion, params, device):
     nb_train_batches, train_loss = 0, 0.
-    model.train()
-    for values in data_generator.generate():
+    model.train()  # set to train model 
+    for values in data_generator.generate(): # generate? 
         # load one batch of data
         if len(values) == 2:
             data, target = values
@@ -201,7 +227,7 @@ def train_epoch(data_generator, optimizer, model, criterion, params, device):
         nb_train_batches += 1
         if params['quick_test'] and nb_train_batches == 4:
             break
-
+    # final loss equals accmulative train_loss divid nb_tarin_batches
     train_loss /= nb_train_batches
 
     return train_loss
@@ -218,28 +244,48 @@ def main(argv):
                               (default) 1
 
     """
-    print(argv)
-    if len(argv) != 3:
-        print('\n\n')
-        print('-------------------------------------------------------------------------------------------------------')
-        print('The code expected two optional inputs')
-        print('\t>> python seld.py <task-id> <job-id>')
-        print('\t\t<task-id> is used to choose the user-defined parameter set from parameter.py')
-        print('Using default inputs for now')
-        print('\t\t<job-id> is a unique identifier which is used for output filenames (models, training plots). '
-              'You can use any number or string for this.')
-        print('-------------------------------------------------------------------------------------------------------')
-        print('\n\n')
-
-    use_cuda = torch.cuda.is_available()
-    device = torch.device("cuda" if use_cuda else "cpu")
-    torch.autograd.set_detect_anomaly(True)
-
     # use parameter set defined by user
     task_id = '1' if len(argv) < 2 else argv[1]
     params = parameters.get_params(task_id)
 
     job_id = 1 if len(argv) < 3 else argv[-1]
+
+    # generate unique_hash_str according to params and initiate logging files 
+    unique_hash_str = get_experiment_hash(params=params)
+    '''initiate the logging features, and the results will all dumped into results_audio/{unique_hash_str}'''
+    results_folder = os.path.join(params['dcase_output_dir'], f"{unique_hash_str}_{params['model']}")
+    os.makedirs(results_folder, exist_ok=True)
+
+    log_file = os.path.join(results_folder, 'results_logs.log')
+    # if not os.path.exists(log_file):
+    #     open(log_file, 'a').close()  # Create the file if it does not exist
+    #     os.chmod(log_file, 0o644)  # Set permissions if necessary
+    logging.basicConfig(level=logging.INFO, filename=log_file, filemode='a', 
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(formatter)
+    logging.getLogger('').addHandler(console_handler)
+
+    logging.info(argv)
+    if len(argv) != 3:
+        logging.info('\n\n')
+        logging.info('-------------------------------------------------------------------------------------------------------')
+        logging.info('The code expected two optional inputs')
+        logging.info('\t>> python seld.py <task-id> <job-id>')
+        logging.info('\t\t<task-id> is used to choose the user-defined parameter set from parameter.py')
+        logging.info('Using default inputs for now')
+        logging.info('\t\t<job-id> is a unique identifier which is used for output filenames (models, training plots). '
+              'You can use any number or string for this.')
+        logging.info('-------------------------------------------------------------------------------------------------------')
+        logging.info('\n\n')
+
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda" if use_cuda else "cpu")
+    # torch.autograd.set_detect_anomaly(True) 用于开启自动求导过程中的异常检测功能。
+    # 该功能可以帮助我们更容易地发现和定位导致自动求导过程出错的代码位置。
+    torch.autograd.set_detect_anomaly(True)
 
     # Training setup
     train_splits, val_splits, test_splits = None, None, None
@@ -268,12 +314,13 @@ def main(argv):
             train_splits = [[3]]
 
         else:
-            print('ERROR: Unknown dataset splits')
+            logging.info('ERROR: Unknown dataset splits')
             exit()
+    # train a seperate model for each test_splits
     for split_cnt, split in enumerate(test_splits):
-        print('\n\n---------------------------------------------------------------------------------------------------')
-        print('------------------------------------      SPLIT {}   -----------------------------------------------'.format(split))
-        print('---------------------------------------------------------------------------------------------------')
+        logging.info('\n\n---------------------------------------------------------------------------------------------------')
+        logging.info('------------------------------------      SPLIT {}   -----------------------------------------------'.format(split))
+        logging.info('---------------------------------------------------------------------------------------------------')
 
         # Unique name for the run
         loc_feat = params['dataset']
@@ -288,46 +335,50 @@ def main(argv):
         unique_name = '{}_{}_{}_split{}_{}_{}'.format(
             task_id, job_id, params['mode'], split_cnt, loc_output, loc_feat
         )
-        model_name = '{}_model.h5'.format(os.path.join(params['model_dir'], unique_name))
-        print("unique_name: {}\n".format(unique_name))
+        model_name = '{}_{}.h5'.format(os.path.join(params['model_dir'], unique_name),params['model'])
+        logging.info("unique_name: {}\n".format(unique_name))
 
-        # Load train and validation data
-        print('Loading training dataset:')
+        # Load train and validation data,
+        logging.info('Loading training dataset:')
+        
         data_gen_train = cls_data_generator.DataGenerator(
             params=params, split=train_splits[split_cnt]
         )
 
-        print('Loading validation dataset:')
+        logging.info('Loading validation dataset:')
         data_gen_val = cls_data_generator.DataGenerator(
             params=params, split=val_splits[split_cnt], shuffle=False, per_file=True
         )
 
-        # Collect i/o data size and load model configuration
+        # Collect i/o data size and load model configuration, load model weights to model
+        # model we used are wrapped in models/ folder, you can modify it in parameter.py  
         if params['modality'] == 'audio_visual':
             data_in, vid_data_in, data_out = data_gen_train.get_data_sizes()
-            model = seldnet_model.SeldModel(data_in, data_out, params, vid_data_in).to(device)
+            model = models[params['model']](data_in, data_out, params, vid_data_in).to(device)
         else:
-            data_in, data_out = data_gen_train.get_data_sizes()
-            model = seldnet_model.SeldModel(data_in, data_out, params).to(device)
-
+            data_in, data_out = data_gen_train.get_data_sizes() 
+            model = models[params['model']](data_in, data_out, params).to(device)
+        
         if params['finetune_mode']:
-            print('Running in finetuning mode. Initializing the model to the weights - {}'.format(params['pretrained_model_weights']))
+            logging.info('Running in finetuning mode. Initializing the model to the weights - {}'.format(params['pretrained_model_weights']))
             state_dict = torch.load(params['pretrained_model_weights'], map_location='cpu')
             if params['modality'] == 'audio_visual':
                 state_dict = {k: v for k, v in state_dict.items() if 'fnn' not in k}
             model.load_state_dict(state_dict, strict=False)
 
-        print('---------------- SELD-net -------------------')
-        print('FEATURES:\n\tdata_in: {}\n\tdata_out: {}\n'.format(data_in, data_out))
-        print('MODEL:\n\tdropout_rate: {}\n\tCNN: nb_cnn_filt: {}, f_pool_size{}, t_pool_size{}\n, rnn_size: {}\n, nb_attention_blocks: {}\n, fnn_size: {}\n'.format(
+        logging.info('---------------- SELD-net -------------------')
+        logging.info('FEATURES:\n\tdata_in: {}\n\tdata_out: {}\n'.format(data_in, data_out))
+        logging.info('MODEL:\n\tdropout_rate: {}\n\tCNN: nb_cnn_filt: {}, f_pool_size{}, t_pool_size{}\n, rnn_size: {}\n, nb_attention_blocks: {}\n, fnn_size: {}\n'.format(
             params['dropout_rate'], params['nb_cnn2d_filt'], params['f_pool_size'], params['t_pool_size'], params['rnn_size'], params['nb_self_attn_layers'],
             params['fnn_size']))
-        print(model)
+        logging.info(model)
 
         # Dump results in DCASE output format for calculating final scores
-        dcase_output_val_folder = os.path.join(params['dcase_output_dir'], '{}_{}_val'.format(unique_name, strftime("%Y%m%d%H%M%S", gmtime())))
+        
+    
+        dcase_output_val_folder = os.path.join(params['dcase_output_dir'], f"{unique_hash_str}_{params['model']}",f'{unique_name}_val')
         cls_feature_class.delete_and_create_folder(dcase_output_val_folder)
-        print('Dumping recording-wise val results in: {}'.format(dcase_output_val_folder))
+        logging.info('Dumping recording-wise val results in: {}'.format(dcase_output_val_folder))
 
         # Initialize evaluation metric class
         score_obj = ComputeSELDResults(params)
@@ -339,11 +390,13 @@ def main(argv):
 
         nb_epoch = 2 if params['quick_test'] else params['nb_epochs']
         optimizer = optim.Adam(model.parameters(), lr=params['lr'])
+
+        # criterion
         if params['multi_accdoa'] is True:
-            criterion = seldnet_model.MSELoss_ADPIT()
+            criterion = MSELoss_ADPIT()
         else:
             criterion = nn.MSELoss()
-
+        
         for epoch_cnt in range(nb_epoch):
             # ---------------------------------------------------------------------
             # TRAINING
@@ -364,7 +417,7 @@ def main(argv):
 
             val_time = time.time() - start_time
 
-            # Save model if F-score is good
+            # Save model if F-score is good F socre? 
             if val_F >= best_F:
                 best_val_epoch, best_ER, best_F, best_LE, best_LR, best_seld_scr, best_dist_err = epoch_cnt, val_ER, val_F, val_LE, val_LR, val_seld_scr, val_dist_err
                 best_rel_dist_err = val_rel_dist_err
@@ -373,8 +426,8 @@ def main(argv):
             else:
                 patience_cnt += 1
 
-            # Print stats
-            print(
+            # logging.info stats
+            logging.info(
                 'epoch: {}, time: {:0.2f}/{:0.2f}, '
                 'train_loss: {:0.4f}, val_loss: {:0.4f}, '
                 'F/AE/Dist_err/Rel_dist_err/SELD: {}, '
@@ -392,18 +445,18 @@ def main(argv):
         # ---------------------------------------------------------------------
         # Evaluate on unseen test data
         # ---------------------------------------------------------------------
-        print('Load best model weights')
+        logging.info('Load best model weights')
         model.load_state_dict(torch.load(model_name, map_location='cpu'))
-
-        print('Loading unseen test dataset:')
+        
+        logging.info('Loading unseen test dataset:')
         data_gen_test = cls_data_generator.DataGenerator(
             params=params, split=test_splits[split_cnt], shuffle=False, per_file=True
         )
 
-        # Dump results in DCASE output format for calculating final scores
-        dcase_output_test_folder = os.path.join(params['dcase_output_dir'], '{}_{}_test'.format(unique_name, strftime("%Y%m%d%H%M%S", gmtime())))
+        # Dump results in DCASE output format for calculating final scores  os.path.join(params['dcase_output_dir'], f'{unique_hash_str}',f'{unique_name}_test')
+        dcase_output_test_folder = os.path.join(params['dcase_output_dir'], f"{unique_hash_str}_{params['model']}",f'{unique_name}_test')
         cls_feature_class.delete_and_create_folder(dcase_output_test_folder)
-        print('Dumping recording-wise test results in: {}'.format(dcase_output_test_folder))
+        logging.info('Dumping recording-wise test results in: {}'.format(dcase_output_test_folder))
 
 
         test_loss = test_epoch(data_gen_test, model, criterion, dcase_output_test_folder, params, device)
@@ -411,17 +464,17 @@ def main(argv):
         use_jackknife=True
         test_ER, test_F, test_LE, test_dist_err, test_rel_dist_err, test_LR, test_seld_scr, classwise_test_scr = score_obj.get_SELD_Results(dcase_output_test_folder, is_jackknife=use_jackknife )
 
-        print('SELD score (early stopping metric): {:0.2f} {}'.format(test_seld_scr[0] if use_jackknife else test_seld_scr, '[{:0.2f}, {:0.2f}]'.format(test_seld_scr[1][0], test_seld_scr[1][1]) if use_jackknife else ''))
-        print('SED metrics: F-score: {:0.1f} {}'.format(100* test_F[0]  if use_jackknife else 100* test_F, '[{:0.2f}, {:0.2f}]'.format(100* test_F[1][0], 100* test_F[1][1]) if use_jackknife else ''))
-        print('DOA metrics: Angular error: {:0.1f} {}'.format(test_LE[0] if use_jackknife else test_LE, '[{:0.2f} , {:0.2f}]'.format(test_LE[1][0], test_LE[1][1]) if use_jackknife else ''))
-        print('Distance metrics: {:0.2f} {}'.format(test_dist_err[0] if use_jackknife else test_dist_err, '[{:0.2f} , {:0.2f}]'.format(test_dist_err[1][0], test_dist_err[1][1]) if use_jackknife else ''))
-        print('Relative Distance metrics: {:0.2f} {}'.format(test_rel_dist_err[0] if use_jackknife else test_rel_dist_err, '[{:0.2f} , {:0.2f}]'.format(test_rel_dist_err[1][0], test_rel_dist_err[1][1]) if use_jackknife else ''))
+        logging.info('SELD score (early stopping metric): {:0.2f} {}'.format(test_seld_scr[0] if use_jackknife else test_seld_scr, '[{:0.2f}, {:0.2f}]'.format(test_seld_scr[1][0], test_seld_scr[1][1]) if use_jackknife else ''))
+        logging.info('SED metrics: F-score: {:0.1f} {}'.format(100* test_F[0]  if use_jackknife else 100* test_F, '[{:0.2f}, {:0.2f}]'.format(100* test_F[1][0], 100* test_F[1][1]) if use_jackknife else ''))
+        logging.info('DOA metrics: Angular error: {:0.1f} {}'.format(test_LE[0] if use_jackknife else test_LE, '[{:0.2f} , {:0.2f}]'.format(test_LE[1][0], test_LE[1][1]) if use_jackknife else ''))
+        logging.info('Distance metrics: {:0.2f} {}'.format(test_dist_err[0] if use_jackknife else test_dist_err, '[{:0.2f} , {:0.2f}]'.format(test_dist_err[1][0], test_dist_err[1][1]) if use_jackknife else ''))
+        logging.info('Relative Distance metrics: {:0.2f} {}'.format(test_rel_dist_err[0] if use_jackknife else test_rel_dist_err, '[{:0.2f} , {:0.2f}]'.format(test_rel_dist_err[1][0], test_rel_dist_err[1][1]) if use_jackknife else ''))
 
         if params['average']=='macro':
-            print('Classwise results on unseen test data')
-            print('Class\tF\tAE\tdist_err\treldist_err\tSELD_score')
+            logging.info('Classwise results on unseen test data')
+            logging.info('Class\tF\tAE\tdist_err\treldist_err\tSELD_score')
             for cls_cnt in range(params['unique_classes']):
-                print('{}\t{:0.2f} {}\t{:0.2f} {}\t{:0.2f} {}\t{:0.2f} {}\t{:0.2f} {}'.format(
+                logging.info('{}\t{:0.2f} {}\t{:0.2f} {}\t{:0.2f} {}\t{:0.2f} {}\t{:0.2f} {}'.format(
                     cls_cnt,
 
                     classwise_test_scr[0][1][cls_cnt] if use_jackknife else classwise_test_scr[1][cls_cnt],
@@ -442,8 +495,10 @@ def main(argv):
                                                 classwise_test_scr[1][6][cls_cnt][1]) if use_jackknife else ''))
 
 if __name__ == "__main__":
+    
     try:
         sys.exit(main(sys.argv))
+
     except (ValueError, IOError) as e:
         sys.exit(e)
 

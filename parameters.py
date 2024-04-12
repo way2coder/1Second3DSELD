@@ -2,7 +2,7 @@
 #
 # Ideally, do not change the values of the default parameters. Create separate cases with unique <task-id> as seen in
 # the code below (if-else loop) and use them. This way you can easily reproduce a configuration on a later time.
-
+from datetime import datetime
 
 def get_params(argv='1'):
     print("SET: {}".format(argv))
@@ -29,11 +29,11 @@ def get_params(argv='1'):
         dataset='foa',  # 'foa' - ambisonic or 'mic' - microphone signals
 
         # FEATURE PARAMS
-        fs=24000,
-        hop_len_s=0.02,
-        label_hop_len_s=0.1,
-        max_audio_len_s=60,
-        nb_mel_bins=64,
+        fs=24000,  # sample rate
+        hop_len_s=0.02, # ??
+        label_hop_len_s=0.1,  # resolution in annotation file
+        max_audio_len_s=60, # length for each audio file
+        nb_mel_bins=64,  # mel
 
         use_salsalite=False,  # Used for MIC dataset only. If true use salsalite features, else use GCC features
         fmin_doa_salsalite=50,
@@ -46,6 +46,7 @@ def get_params(argv='1'):
         thresh_unify=15,    # Required for Multi-ACCDOA only. Threshold of unification for inference in degrees.
 
         # DNN MODEL PARAMETERS
+        model = 'SeldModel',   # model will be trained, default: SeldModel
         label_sequence_length=50,    # Feature sequence length
         batch_size=128,              # Batch size
         dropout_rate=0.05,           # Dropout rate, constant for all layers
@@ -72,6 +73,9 @@ def get_params(argv='1'):
         lad_doa_thresh=20,               # DOA error threshold for computing the detection metrics
         lad_dist_thresh=float('inf'),    # Absolute distance error threshold for computing the detection metrics
         lad_reldist_thresh=float('1'),  # Relative distance error threshold for computing the detection metrics
+
+        # time used to generate hash value of results folder
+        current_time = datetime.now().isoformat() 
     )
 
     # ########### User defined parameters ##############
@@ -127,12 +131,13 @@ def get_params(argv='1'):
         print('ERROR: unknown argument {}'.format(argv))
         exit()
 
-    feature_label_resolution = int(params['label_hop_len_s'] // params['hop_len_s'])
-    params['feature_sequence_length'] = params['label_sequence_length'] * feature_label_resolution
-    params['t_pool_size'] = [feature_label_resolution, 1, 1]  # CNN time pooling
-    params['patience'] = int(params['nb_epochs'])  # Stop training if patience is reached
-    params['model_dir'] = params['model_dir'] + '_' + params['modality']
-    params['dcase_output_dir'] = params['dcase_output_dir'] + '_' + params['modality']
+    
+    feature_label_resolution = int(params['label_hop_len_s'] // params['hop_len_s']) # 5 = 0.1 / 0.02
+    params['feature_sequence_length'] = params['label_sequence_length'] * feature_label_resolution # 50 * 5 
+    params['t_pool_size'] = [feature_label_resolution, 1, 1]  # CNN time pooling   [5, 1, 1]
+    params['patience'] = int(params['nb_epochs'])  # Stop training if patience is reached 250
+    params['model_dir'] = params['model_dir'] + '_' + params['modality']  # folder name of this 
+    params['dcase_output_dir'] = params['dcase_output_dir'] + '_' + params['modality'] # 
 
     if '2020' in params['dataset_dir']:
         params['unique_classes'] = 14
