@@ -48,6 +48,7 @@ def jackknife_estimation(global_value, partial_estimates, significance_level=0.0
 
 class ComputeSELDResults(object):
     def __init__(self, params, ref_files_folder=None):
+        breakpoint()
         self._desc_dir = ref_files_folder if ref_files_folder is not None else os.path.join(params['dataset_dir'],
                                                                                             'metadata_dev')
         self._doa_thresh = params['lad_doa_thresh']
@@ -108,17 +109,18 @@ class ComputeSELDResults(object):
         # collect predicted files info
         pred_files = os.listdir(pred_files_path)
         pred_labels_dict = {}
-        if self.segment_level:
+        if self.segment_level: # false, use event-based 
             eval = SELD_evaluation_metrics.SELDMetricsSegmentLevel(nb_classes=self._feat_cls.get_nb_classes(),
                                                        doa_threshold=self._doa_thresh, average=self._average)
         else:
             eval = SELD_evaluation_metrics.SELDMetrics(nb_classes=self._feat_cls.get_nb_classes(),
                                     doa_threshold=self._doa_thresh, average=self._average, eval_dist=self.evaluate_distance,
-                                    dist_threshold=self._dist_thresh, reldist_threshold=self._reldist_thresh)
+                                    dist_threshold=self._dist_thresh, reldist_threshold=self._reldist_thresh) # 13, 20, macro, True, inf, 1 
 
         for pred_cnt, pred_file in enumerate(pred_files):
             # Load predicted output format file
-            pred_dict = self._feat_cls.load_output_format_file(os.path.join(pred_files_path, pred_file))
+            breakpoint()
+            pred_dict = self._feat_cls.load_output_format_file(os.path.join(pred_files_path, pred_file)) 
             pred_dict = self._feat_cls.convert_output_format_polar_to_cartesian(pred_dict)
             if self.segment_level:
                 pred_labels = self._feat_cls.segment_labels(pred_dict, self._ref_labels[pred_file][1])
@@ -126,14 +128,14 @@ class ComputeSELDResults(object):
             else:
                 pred_labels = self._feat_cls.organize_labels(pred_dict, self._ref_labels[pred_file][1])
                 # pred_labels[frame-index][class-index][track-index] := [azimuth, elevation]
-            # Calculated scores
+            # Calculated scores 
             eval.update_seld_scores(pred_labels, self._ref_labels[pred_file][0], eval_dist=self.evaluate_distance)
             if is_jackknife:
                 pred_labels_dict[pred_file] = pred_labels
         # Overall SED and DOA scores
 
         if self.evaluate_distance:
-            ER, F, AngE, DistE, RelDistE, LR, seld_scr, classwise_results = eval.compute_seld_scores()
+            ER, F, AngE, DistE, RelDistE, LR, seld_scr, classwise_results = eval.compute_seld_scores()()
         else:
             ER, F, AngE, LR, seld_scr, classwise_results = eval.compute_seld_scores()
 

@@ -75,11 +75,11 @@ def get_multi_accdoa_labels(accdoa_in, nb_classes):
     doa1 = accdoa_in[:, :, 4*nb_classes: 7*nb_classes]
 
     x2, y2, z2 = accdoa_in[:, :, 8*nb_classes:9*nb_classes], accdoa_in[:, :, 9*nb_classes:10*nb_classes], accdoa_in[:, :, 10*nb_classes:11*nb_classes]
-    dist2 = accdoa_in[:, :, 11*nb_classes:]
+    dist2 = accdoa_in[:, :, 11*nb_classes:] 
     dist2[dist2<0.] = 0.
     sed2 = np.sqrt(x2**2 + y2**2 + z2**2) > 0.5
     doa2 = accdoa_in[:, :, 8*nb_classes:11*nb_classes]
-
+    # multi tracks, sed(sound event detection) b, 50, 13 doa b, 50, 39 dist b, 50, 13    bool float32 float32
     return sed0, doa0, dist0, sed1, doa1, dist1, sed2, doa2, dist2
 
 
@@ -98,16 +98,16 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
     # Number of frames for a 60 second audio with 100ms hop length = 600 frames
     # Number of frames in one batch (batch_size* sequence_length) consists of all the 600 frames above with zero padding in the remaining frames
     test_filelist = data_generator.get_filelist()
-
+    
     nb_test_batches, test_loss = 0, 0.
     model.eval()
     file_cnt = 0
     with torch.no_grad():
         for values in data_generator.generate():
             if len(values) == 2:
-                data, target = values
+                data, target = values    # data[(114, 7, 250, 64)] target[(114, 50, 6, 5, 13)]
                 data, target = torch.tensor(data).to(device).float(), torch.tensor(target).to(device).float()
-                output = model(data)
+                output = model(data) # output ([114, 50, 156])
             elif len(values) == 3:
                 data, vid_feat, target = values
                 data, vid_feat, target = torch.tensor(data).to(device).float(), torch.tensor(vid_feat).to(device).float(), torch.tensor(target).to(device).float()
@@ -116,10 +116,10 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
 
             if params['multi_accdoa'] is True:
                 sed_pred0, doa_pred0, dist_pred0, sed_pred1, doa_pred1, dist_pred1, sed_pred2, doa_pred2, dist_pred2 = get_multi_accdoa_labels(output.detach().cpu().numpy(), params['unique_classes'])
-                sed_pred0 = reshape_3Dto2D(sed_pred0)
-                doa_pred0 = reshape_3Dto2D(doa_pred0)
-                dist_pred0 = reshape_3Dto2D(dist_pred0)
-                sed_pred1 = reshape_3Dto2D(sed_pred1)
+                sed_pred0 = reshape_3Dto2D(sed_pred0) # 5700, 13
+                doa_pred0 = reshape_3Dto2D(doa_pred0) # 5700, 39
+                dist_pred0 = reshape_3Dto2D(dist_pred0) # 5700, 13
+                sed_pred1 = reshape_3Dto2D(sed_pred1) 
                 doa_pred1 = reshape_3Dto2D(doa_pred1)
                 dist_pred1 = reshape_3Dto2D(dist_pred1)
                 sed_pred2 = reshape_3Dto2D(sed_pred2)
@@ -131,20 +131,20 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
                 doa_pred = reshape_3Dto2D(doa_pred)
 
             # dump SELD results to the correspondin file
-
-            output_file = os.path.join(dcase_output_folder, test_filelist[file_cnt].replace('.npy', '.csv'))
-            file_cnt += 1
-            output_dict = {}
+            # file nameformat 3_1_dev_split0_multiaccdoa_foa_val\\fold4_room10_mix003.csv   test_filelist[file_cnt] --- 'fold4_room10_mix003.npy'
+            output_file = os.path.join(dcase_output_folder, test_filelist[file_cnt].replace('.npy', '.csv')) 
+            file_cnt += 1 # file_cnt update
+            output_dict = {} # initiate per batch 
             if params['multi_accdoa'] is True:
-                for frame_cnt in range(sed_pred0.shape[0]):
-                    for class_cnt in range(sed_pred0.shape[1]):
-                        # determine whether track0 is similar to track1
+                for frame_cnt in range(sed_pred0.shape[0]): # for each batchsize & timestep 
+                    for class_cnt in range(sed_pred0.shape[1]): # for each class 
+                        # determine whether track0 is similar to track1 
                         flag_0sim1 = determine_similar_location(sed_pred0[frame_cnt][class_cnt], sed_pred1[frame_cnt][class_cnt], doa_pred0[frame_cnt], doa_pred1[frame_cnt], class_cnt, params['thresh_unify'], params['unique_classes'])
                         flag_1sim2 = determine_similar_location(sed_pred1[frame_cnt][class_cnt], sed_pred2[frame_cnt][class_cnt], doa_pred1[frame_cnt], doa_pred2[frame_cnt], class_cnt, params['thresh_unify'], params['unique_classes'])
                         flag_2sim0 = determine_similar_location(sed_pred2[frame_cnt][class_cnt], sed_pred0[frame_cnt][class_cnt], doa_pred2[frame_cnt], doa_pred0[frame_cnt], class_cnt, params['thresh_unify'], params['unique_classes'])
                         # unify or not unify according to flag
-                        if flag_0sim1 + flag_1sim2 + flag_2sim0 == 0:
-                            if sed_pred0[frame_cnt][class_cnt]>0.5:
+                        if flag_0sim1 + flag_1sim2 + flag_2sim0 == 0:  # each track is not similar with the other track 
+                            if sed_pred0[frame_cnt][class_cnt]>0.5: 
                                 if frame_cnt not in output_dict:
                                     output_dict[frame_cnt] = []
                                 output_dict[frame_cnt].append([class_cnt, doa_pred0[frame_cnt][class_cnt], doa_pred0[frame_cnt][class_cnt+params['unique_classes']], doa_pred0[frame_cnt][class_cnt+2*params['unique_classes']], dist_pred0[frame_cnt][class_cnt]])
@@ -380,7 +380,7 @@ def main(argv):
         cls_feature_class.delete_and_create_folder(dcase_output_val_folder)
         logging.info('Dumping recording-wise val results in: {}'.format(dcase_output_val_folder))
 
-        # Initialize evaluation metric class
+        # Initialize evaluation metric class, use a class to evaluate the params
         score_obj = ComputeSELDResults(params)
 
         # start training
@@ -402,12 +402,11 @@ def main(argv):
             # TRAINING
             # ---------------------------------------------------------------------
             start_time = time.time()
-            train_loss = train_epoch(data_gen_train, optimizer, model, criterion, params, device)
+            train_loss = train_epoch(data_gen_train, optimizer, model, criterion, params, device) # only the train_loss is needed in training procedure
             train_time = time.time() - start_time
             # ---------------------------------------------------------------------
             # VALIDATION
             # ---------------------------------------------------------------------
-
 
             start_time = time.time()
             val_loss = test_epoch(data_gen_val, model, criterion, dcase_output_val_folder, params, device)
@@ -458,9 +457,9 @@ def main(argv):
         cls_feature_class.delete_and_create_folder(dcase_output_test_folder)
         logging.info('Dumping recording-wise test results in: {}'.format(dcase_output_test_folder))
 
-
+        # the results will be saved into *_test file
         test_loss = test_epoch(data_gen_test, model, criterion, dcase_output_test_folder, params, device)
-
+        # 2024 challenge only focus test_F, test_LE,  test_dist_err 
         use_jackknife=True
         test_ER, test_F, test_LE, test_dist_err, test_rel_dist_err, test_LR, test_seld_scr, classwise_test_scr = score_obj.get_SELD_Results(dcase_output_test_folder, is_jackknife=use_jackknife )
 

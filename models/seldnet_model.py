@@ -24,10 +24,12 @@ class ConvBlock(nn.Module):
 class SeldModel(torch.nn.Module):
     def __init__(self, in_feat_shape, out_shape, params, in_vid_feat_shape=None):
         super().__init__()
+        
         self.nb_classes = params['unique_classes']
         self.params=params
         self.conv_block_list = nn.ModuleList()
-        if len(params['f_pool_size']):
+        # CNN module list 
+        if len(params['f_pool_size']): 
             for conv_cnt in range(len(params['f_pool_size'])):
                 self.conv_block_list.append(ConvBlock(in_channels=params['nb_cnn2d_filt'] if conv_cnt else in_feat_shape[1], out_channels=params['nb_cnn2d_filt']))
                 self.conv_block_list.append(nn.MaxPool2d((params['t_pool_size'][conv_cnt], params['f_pool_size'][conv_cnt])))
@@ -61,18 +63,19 @@ class SeldModel(torch.nn.Module):
 
     def forward(self, x, vid_feat=None):
         """input: (batch_size, mic_channels, time_steps, mel_bins)"""
+        
         for conv_cnt in range(len(self.conv_block_list)):
             x = self.conv_block_list[conv_cnt](x)
-
-        x = x.transpose(1, 2).contiguous()
-        x = x.view(x.shape[0], x.shape[1], -1).contiguous()
-        (x, _) = self.gru(x)
-        x = torch.tanh(x)
-        x = x[:, :, x.shape[-1]//2:] * x[:, :, :x.shape[-1]//2]
+        # x.shape batchsize, 64, 50, 2
+        x = x.transpose(1, 2).contiguous() # barchsize 50 64 2 
+        x = x.view(x.shape[0], x.shape[1], -1).contiguous() # 128 50 128 
+        (x, _) = self.gru(x) # 128 50 256 
+        x = torch.tanh(x) # 
+        x = x[:, :, x.shape[-1]//2:] * x[:, :, :x.shape[-1]//2] # element-wise multipucation to reduce dimision, integrate information, enhance non-linearity
 
         for mhsa_cnt in range(len(self.mhsa_block_list)):
-            x_attn_in = x
-            x, _ = self.mhsa_block_list[mhsa_cnt](x_attn_in, x_attn_in, x_attn_in)
+            x_attn_in = x # b 50 256 
+            x, _ = self.mhsa_block_list[mhsa_cnt](x_attn_in, x_attn_in, x_attn_in) 
             x = x + x_attn_in
             x = self.layer_norm_list[mhsa_cnt](x)
 
@@ -81,17 +84,18 @@ class SeldModel(torch.nn.Module):
             vid_feat = self.visual_embed_to_d_model(vid_feat)
             x = self.transformer_decoder(x, vid_feat)
 
-        for fnn_cnt in range(len(self.fnn_list) - 1):
+        for fnn_cnt in range(len(self.fnn_list) - 1): # linear(128, 128) linear(128, 156)
             x = self.fnn_list[fnn_cnt](x)
-        doa = self.fnn_list[-1](x)
+        doa = self.fnn_list[-1](x) # b,50,156
 
-        doa = doa.reshape(doa.size(0), doa.size(1), 3, 4, 13)
-        doa1 = doa[:, :, :, :3, :]
-        dist = doa[:, :, :, 3:, :]
+        doa = doa.reshape(doa.size(0), doa.size(1), 3, 4, 13) # b 50 3 4 13
+        doa1 = doa[:, :, :, :3, :]  #[128, 50, 3, 3, 13]
+        dist = doa[:, :, :, 3:, :]  #[128, 50, 3, 1, 13]
 
         doa1 = self.doa_act(doa1)
         dist = self.dist_act(dist)
         doa2 = torch.cat((doa1, dist), dim=3)
 
         doa2 = doa2.reshape((doa.size(0), doa.size(1), -1))
+        
         return doa2

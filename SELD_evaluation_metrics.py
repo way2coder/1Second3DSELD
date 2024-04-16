@@ -232,9 +232,9 @@ class SELDMetrics(object):
         self._FP_spatial = np.zeros(self._nb_classes)
         self._FN = np.zeros(self._nb_classes)
 
-        self._Nref = np.zeros(self._nb_classes)
+        self._Nref = np.zeros(self._nb_classes) 
 
-        self._ang_T = doa_threshold
+        self._ang_T = doa_threshold 
         self._dist_T = dist_threshold
         self._reldist_T = reldist_threshold
 
