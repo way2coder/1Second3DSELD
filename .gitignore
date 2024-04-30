@@ -10,3 +10,8 @@ __pycache__/
 # temp file 
 models_audio/
 results_audio/
+
+
+
+# explore data property
+ExploreData/

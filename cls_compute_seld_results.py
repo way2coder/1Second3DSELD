@@ -48,11 +48,11 @@ def jackknife_estimation(global_value, partial_estimates, significance_level=0.0
 
 class ComputeSELDResults(object):
     def __init__(self, params, ref_files_folder=None):
-        breakpoint()
+        
         self._desc_dir = ref_files_folder if ref_files_folder is not None else os.path.join(params['dataset_dir'],
                                                                                             'metadata_dev')
         self._doa_thresh = params['lad_doa_thresh']
-        self._dist_thresh = params['lad_dist_thresh']  if 'lad_dist_thresh' in params else float('inf')
+        self._dist_thresh = params['lad_dist_thresh'] if 'lad_dist_thresh' in params else float('inf')
         self._reldist_thresh = params['lad_reldist_thresh'] if 'lad_reldist_thresh' in params else float('inf')
         self.segment_level = params['segment_based_metrics'] if 'segment_based_metrics' in params else True
         self.evaluate_distance = params['evaluate_distance'] if 'evaluate_distance' in params else False
@@ -119,7 +119,7 @@ class ComputeSELDResults(object):
 
         for pred_cnt, pred_file in enumerate(pred_files):
             # Load predicted output format file
-            breakpoint()
+            
             pred_dict = self._feat_cls.load_output_format_file(os.path.join(pred_files_path, pred_file)) 
             pred_dict = self._feat_cls.convert_output_format_polar_to_cartesian(pred_dict)
             if self.segment_level:
@@ -135,7 +135,7 @@ class ComputeSELDResults(object):
         # Overall SED and DOA scores
 
         if self.evaluate_distance:
-            ER, F, AngE, DistE, RelDistE, LR, seld_scr, classwise_results = eval.compute_seld_scores()()
+            ER, F, AngE, DistE, RelDistE, LR, seld_scr, classwise_results = eval.compute_seld_scores()
         else:
             ER, F, AngE, LR, seld_scr, classwise_results = eval.compute_seld_scores()
 

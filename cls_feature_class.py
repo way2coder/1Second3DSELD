@@ -1,4 +1,4 @@
-# Contains routines for labels creation, features extraction and normalization
+# Contains routines for labels creation, features extraction and normalization, 
 #
 
 from cls_vid_features import VideoFeatures
@@ -31,7 +31,6 @@ class FeatureClass:
         :param params: parameters dictionary
         :param is_eval: if True, does not load dataset labels.
         """
-
         # Input directories
         self._feat_label_dir = params['feat_label_dir']
         self._dataset_dir = params['dataset_dir']
