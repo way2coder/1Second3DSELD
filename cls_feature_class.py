@@ -753,8 +753,8 @@ class FeatureClass:
 
     def get_normalized_wts_file(self):
         return os.path.join(
-            self._feat_label_dir,
-            '{}_wts'.format(self._dataset)
+            self.get_normalized_feat_dir(self), 
+            '{}_{}wts'.format(self._dataset, self._filter_type)
         )
 
     def get_vid_feat_dir(self):
