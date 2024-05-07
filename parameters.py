@@ -29,6 +29,7 @@ def get_params(argv='1'):
         dataset='foa',  # 'foa' - ambisonic or 'mic' - microphone signals
 
         # FEATURE PARAMS
+        filter = 'mel', # 'mel' / 'gammatone' / 'bark'
         fs=24000,  # sample rate
         hop_len_s=0.02, # ??
         label_hop_len_s=0.1,  # resolution in annotation file
@@ -39,6 +40,7 @@ def get_params(argv='1'):
         fmin_doa_salsalite=50,
         fmax_doa_salsalite=2000,
         fmax_spectra_salsalite=9000,
+
 
         # MODEL TYPE
         modality='audio_visual',  # 'audio' or 'audio_visual'

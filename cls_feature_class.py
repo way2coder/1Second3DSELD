@@ -18,6 +18,8 @@ import wave
 import contextlib
 import cv2
 from spafe.fbanks import mel_fbanks, gammatone_fbanks, bark_fbanks
+import time 
+import torch
 
 
 def nCr(n, r):
@@ -45,6 +47,9 @@ class FeatureClass:
         self._feat_dir = None
         self._feat_dir_norm = None
         self._vid_feat_dir = None
+        # video feature extraction
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.pretrained_vid_model = VideoFeatures().to(self.device)  # 确保模型在正确的设备上
 
         # Local parameters
         self._is_eval = is_eval
@@ -67,6 +72,7 @@ class FeatureClass:
         self._multi_accdoa = params['multi_accdoa']  # bool
 
         self._filter_type = params['filter']  # "mel", "gammatone", "bark"
+
         self._use_salsalite = params['use_salsalite'] # bool
         if self._use_salsalite and self._dataset=='mic': #  _use_salsalite is valid only when the dataset config is mic
             # Initialize the spatial feature constants
@@ -88,8 +94,7 @@ class FeatureClass:
             self._nb_mel_bins = self._cutoff_bin - self._lower_bin
         else:
             self._nb_mel_bins = params['nb_mel_bins']
-            
-            self._mel_wts = librosa.filters.mel(sr=self._fs, n_fft=self._nfft, n_mels=self._nb_mel_bins).T
+            # decide which mel wts will be used by the parameter mel filter type
             if self._filter_type == 'mel':
                 self._mel_wts = librosa.filters.mel(sr=self._fs, n_fft=self._nfft, n_mels=self._nb_mel_bins).T
             elif self._filter_type == 'gammatone':
@@ -484,7 +489,7 @@ class FeatureClass:
     @staticmethod 
     def _read_vid_frames(vid_filename):
         cap = cv2.VideoCapture(vid_filename)
-        pil_frames = []
+        frames = []
         frame_cnt = 0
         while True:
             ret, frame = cap.read()   # ret: bool, frame: ndarray 960, 1920, 3 height width channel
@@ -493,26 +498,33 @@ class FeatureClass:
             if frame_cnt % 3 == 0:   # every 3 frame 
                 resized_frame = cv2.resize(frame, (360, 180))   # resize image to 180, 360, 3
                 frame_rgb = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)  # BGR2RGB
-                pil_frame = Image.fromarray(frame_rgb) # ndarray to PIL 
-                pil_frames.append(pil_frame) # 
+                # pil_frame = Image.fromarray(frame_rgb) # ndarray to PIL 
+                frames.append(frame_rgb) # 
             frame_cnt += 1
         cap.release()
         cv2.destroyAllWindows()
+        
+        frames_array = np.array(frames)  # Convert to numpy array of shape [N, H, W, C]
 
-        return pil_frames
+        return frames_array.transpose(0, 3, 1, 2) # Reorder to [N, C, H, W]
 
     def extract_file_vid_feature(self, _arg_in):
         _file_cnt, _mp4_path, _vid_feat_path = _arg_in
         vid_feat = None
-
+        before_read_frame = time.time()
+        # breakpoint()
         vid_frames = self._read_vid_frames(_mp4_path) # len(vid_frames):T/5, vid_frames[i]{ image mode=RGB size=360x180}
-        pretrained_vid_model = VideoFeatures()  
-        vid_feat = pretrained_vid_model(vid_frames)    # tensor shape   T/5, 7, 7
+        print(f'\t\t time for read vid frame = {time.time() - before_read_frame}')
+        before_model_inference = time.time()
+        vid_frames_tensor = torch.tensor(vid_frames).float().to(self.device)
+        vid_feat = self.pretrained_vid_model(vid_frames_tensor)    # tensor shape   T/5, 7, 7
+        vid_feat = vid_feat.cpu().numpy() if self.device == 'cuda' else vid_feat.numpy()
+        print(f'\t\t time for model inference = {time.time() - before_model_inference}')
         vid_feat = np.array(vid_feat) 
 
         if vid_feat is not None:
             print('{}: {}, {}'.format(_file_cnt, os.path.basename(_mp4_path), vid_feat.shape))
-            np.save(_vid_feat_path, vid_feat)  # feat_label_hnet/video_dev/_vid_feat_path  ->
+            np.save(_vid_feat_path, vid_feat)  # feat_label_hnet/video_dev/_vid_feat_path  -> 
 
     def extract_visual_features(self):
         self._vid_feat_dir = self.get_vid_feat_dir()
@@ -527,7 +539,11 @@ class FeatureClass:
                 mp4_filename = '{}.mp4'.format(file_name.split('.')[0])
                 mp4_path = os.path.join(loc_vid_folder, mp4_filename) # '../Dataset/STARSS2023\\video_dev\\dev-test-sony\\fold4_room23_mix001.mp4'
                 vid_feat_path = os.path.join(self._vid_feat_dir, '{}.npy'.format(mp4_filename.split('.')[0])) # '../Dataset/STARSS2023/feat_label_hnet/video_dev\\fold4_room23_mix001.npy'
-                self.extract_file_vid_feature((file_cnt, mp4_path, vid_feat_path)) 
+                # Check if the feature file already exists to avoid reprocessing
+                if not os.path.exists(vid_feat_path):
+                    self.extract_file_vid_feature((file_cnt, mp4_path, vid_feat_path))
+                else:
+                    print(f"Skipping {mp4_filename} as features are already extracted.")
 
     # -------------------------------  DCASE OUTPUT  FORMAT FUNCTIONS -------------------------------
     def load_output_format_file(self, _output_format_file, cm2m=False):  # TODO: Reconsider cm2m conversion
