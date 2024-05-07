@@ -22,8 +22,8 @@ class DataGenerator(object):
         self._label_seq_len = params['label_sequence_length']
         self._shuffle = shuffle
         self._feat_cls = cls_feature_class.FeatureClass(params=params, is_eval=self._is_eval)
-        self._label_dir = self._feat_cls.get_label_dir()
-        self._feat_dir = self._feat_cls.get_normalized_feat_dir()
+        self._label_dir = self._feat_cls.get_label_dir() 
+        self._feat_dir = self._feat_cls.get_normalized_feat_dir()  # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm'
         self._multi_accdoa = params['multi_accdoa']
 
         self._filenames_list = list()
@@ -31,8 +31,8 @@ class DataGenerator(object):
         self._nb_mel_bins = self._feat_cls.get_nb_mel_bins()
         self._nb_ch = None
         self._label_len = None  # total length of label - DOA + SED
-        self._doa_len = None    # DOA label length
-        self._nb_classes = self._feat_cls.get_nb_classes()
+        self._doa_len = None    # DOA label length 
+        self._nb_classes = self._feat_cls.get_nb_classes()  # 13 
 
         self._circ_buf_feat = None
         self._circ_buf_label = None
@@ -88,7 +88,7 @@ class DataGenerator(object):
         print('Computing some stats about the dataset')
         max_frames, total_frames, temp_feat = -1, 0, []
         for filename in os.listdir(self._feat_dir):
-            if int(filename[4]) in self._splits:  # check which split the file belongs to
+            if int(filename[4]) in self._splits:  # check which split the file belongs to fold3/ fold4
                 if self._modality == 'audio' or (hasattr(self, '_vid_feat_dir') and os.path.exists(os.path.join(self._vid_feat_dir, filename))):   # some audio files do not have corresponding videos. Ignore them.
                     self._filenames_list.append(filename)
                     temp_feat = np.load(os.path.join(self._feat_dir, filename))

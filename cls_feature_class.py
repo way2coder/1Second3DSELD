@@ -36,12 +36,12 @@ class FeatureClass:
         # Input directories
         self._feat_label_dir = params['feat_label_dir']
         self._dataset_dir = params['dataset_dir'] 
-        self._dataset_combination = '{}_{}'.format(params['dataset'], 'eval' if is_eval else 'dev')
-        self._aud_dir = os.path.join(self._dataset_dir, self._dataset_combination)
+        self._dataset_combination = '{}_{}'.format(params['dataset'], 'eval' if is_eval else 'dev')  # foa_dev 
+        self._aud_dir = os.path.join(self._dataset_dir, self._dataset_combination) #'../Dataset/STARSS2023\\foa_dev'
 
-        self._desc_dir = None if is_eval else os.path.join(self._dataset_dir, 'metadata_dev')
+        self._desc_dir = None if is_eval else os.path.join(self._dataset_dir, 'metadata_dev') # '../Dataset/STARSS2023\\metadata_dev'
 
-        self._vid_dir = os.path.join(self._dataset_dir, 'video_{}'.format('eval' if is_eval else 'dev'))
+        self._vid_dir = os.path.join(self._dataset_dir, 'video_{}'.format('eval' if is_eval else 'dev')) # 
         # Output directories
         self._label_dir = None
         self._feat_dir = None
@@ -98,9 +98,11 @@ class FeatureClass:
             if self._filter_type == 'mel':
                 self._mel_wts = librosa.filters.mel(sr=self._fs, n_fft=self._nfft, n_mels=self._nb_mel_bins).T
             elif self._filter_type == 'gammatone':
-                self._mel_wts = gammatone_fbanks.gammatone_filter_banks(nfilts=self._nb_mel_bins, nfft=self._nfft, fs=self._fs, scale='descendant').T
+                self._mel_wts, _ = gammatone_fbanks.gammatone_filter_banks(nfilts=self._nb_mel_bins, nfft=self._nfft, fs=self._fs, scale='descendant')
+                self._mel_wts = self._mel_wts.T
             elif self._filter_type == 'bark':
-                self._mel_wts = bark_fbanks.bark_filter_banks(nfilts=self._nb_mel_bins, nfft=self._nfft, fs=self._fs).T
+                self._mel_wts, _ = bark_fbanks.bark_filter_banks(nfilts=self._nb_mel_bins, nfft=self._nfft, fs=self._fs).T
+                self._mel_wts = self._mel_wts.T            
             else:
                 raise ValueError("Unsupported filter type: {}".format(self._filter_type))
     
@@ -139,6 +141,7 @@ class FeatureClass:
         return 2 ** (x - 1).bit_length()
 
     def _spectrogram(self, audio_input, _nb_frames):
+        
         _nb_ch = audio_input.shape[1]
         nb_bins = self._nfft // 2
         spectra = []
@@ -149,6 +152,7 @@ class FeatureClass:
         return np.array(spectra).T
 
     def _get_mel_spectrogram(self, linear_spectra): # get mel spectrogram
+        
         mel_feat = np.zeros((linear_spectra.shape[0], self._nb_mel_bins, linear_spectra.shape[-1]))
         for ch_cnt in range(linear_spectra.shape[-1]):
             mag_spectra = np.abs(linear_spectra[:, :, ch_cnt])**2
@@ -159,6 +163,7 @@ class FeatureClass:
         return mel_feat
 
     def _get_foa_intensity_vectors(self, linear_spectra):
+        
         W = linear_spectra[:, :, 0]
         I = np.real(np.conj(W)[:, :, np.newaxis] * linear_spectra[:, :, 1:])
         E = self._eps + (np.abs(W)**2 + ((np.abs(linear_spectra[:, :, 1:])**2).sum(-1)) / 3.0)
@@ -366,9 +371,8 @@ class FeatureClass:
     # ------------------------------- EXTRACT AUDIO FEATURE AND PREPROCESS IT -------------------------------
 
     def extract_file_feature(self, _arg_in): # 提取单个wav文件的特征
-        _file_cnt, _wav_path, _feat_path = _arg_in (1, '../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix002.wav', '../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy')
+        _file_cnt, _wav_path, _feat_path = _arg_in # (1, '../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix002.wav', '../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy')
         spect = self._get_spectrogram_for_file(_wav_path) #  (2235, 513, 4)
-
         # extract mel
         if not self._use_salsalite:
             mel_spect = self._get_mel_spectrogram(spect) # get mel from spectrogram, (2235, 256)
@@ -395,7 +399,7 @@ class FeatureClass:
   
     def extract_all_feature(self): 
         # setting up folders
-        self._feat_dir = self.get_unnormalized_feat_dir() # '../Dataset/STARSS2023/feat_label_hnet/foa_dev'
+        self._feat_dir = self.get_unnormalized_feat_dir() # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_mel'
         create_folder(self._feat_dir)
         from multiprocessing import Pool
         import time
@@ -403,7 +407,7 @@ class FeatureClass:
         # extraction starts
         print('Extracting spectrogram:')
         print('\t\taud_dir {}\n\t\tdesc_dir {}\n\t\tfeat_dir {}'.format(
-            self._aud_dir, self._desc_dir, self._feat_dir))  ('../Dataset/STARSS2023\\foa_dev', '../Dataset/STARSS2023\\metadata_dev', '../Dataset/STARSS2023/feat_label_hnet/foa_dev')
+            self._aud_dir, self._desc_dir, self._feat_dir))  # ('../Dataset/STARSS2023\\foa_dev', '../Dataset/STARSS2023\\metadata_dev', '../Dataset/STARSS2023/feat_label_hnet/foa_dev_mel')
         arg_list = [] 
         for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
             loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
@@ -411,18 +415,23 @@ class FeatureClass:
                 wav_filename = '{}.wav'.format(file_name.split('.')[0])
                 wav_path = os.path.join(loc_aud_folder, wav_filename) # ../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix001.wav
                 feat_path = os.path.join(self._feat_dir, '{}.npy'.format(wav_filename.split('.')[0]))  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix001.npy
-                self.extract_file_feature((file_cnt, wav_path, feat_path)) # 提取单个wav文件的特征
+                # process only when the file is not exsit
+                if not os.path.exists(feat_path):
+                    self.extract_file_feature((file_cnt, wav_path, feat_path)) # 提取单个wav文件的特征
+                else:
+                    print(f"Skipping {feat_path} as features are already extracted.")
                 arg_list.append((file_cnt, wav_path, feat_path)) 
-#        with Pool() as pool:
-#            result = pool.map(self.extract_file_feature, iterable=arg_list)
-#            pool.close()
-#            pool.join()
+
+        # with Pool() as pool:
+        #     result = pool.map(self.extract_file_feature, iterable=arg_list)
+        #     pool.close()
+        #     pool.join()
         print(time.time()-start_s)
 
     def preprocess_features(self):
         # Setting up folders and filenames
-        self._feat_dir = self.get_unnormalized_feat_dir() # ../Dataset/STARSS2023/feat_label_hnet/foa_dev
-        self._feat_dir_norm = self.get_normalized_feat_dir()  # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_norm'
+        self._feat_dir = self.get_unnormalized_feat_dir() # ../Dataset/STARSS2023/feat_label_hnet/foa_dev_mel
+        self._feat_dir_norm = self.get_normalized_feat_dir()  # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_mel_norm'
         create_folder(self._feat_dir_norm) 
         normalized_features_wts_file = self.get_normalized_wts_file() #../Dataset/STARSS2023/feat_label_hnet/foa_wts
         spec_scaler = None
@@ -512,7 +521,7 @@ class FeatureClass:
         _file_cnt, _mp4_path, _vid_feat_path = _arg_in
         vid_feat = None
         before_read_frame = time.time()
-        # breakpoint()
+        # 
         vid_frames = self._read_vid_frames(_mp4_path) # len(vid_frames):T/5, vid_frames[i]{ image mode=RGB size=360x180}
         print(f'\t\t time for read vid frame = {time.time() - before_read_frame}')
         before_model_inference = time.time()
@@ -723,13 +732,14 @@ class FeatureClass:
     def get_normalized_feat_dir(self):
         return os.path.join(
             self._feat_label_dir,
-            '{}_norm'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination)
+            '{}_{}_norm'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type)
         )
 
     def get_unnormalized_feat_dir(self):
+        
         return os.path.join(
             self._feat_label_dir,
-            '{}'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination)
+            '{}_{}'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type)
         )
 
     def get_label_dir(self):
@@ -777,3 +787,8 @@ def delete_and_create_folder(folder_name):
         shutil.rmtree(folder_name)
     os.makedirs(folder_name, exist_ok=True)
 
+
+
+
+if __name__ == '__main__':
+    pass 

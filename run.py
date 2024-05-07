@@ -343,12 +343,12 @@ def main(argv):
         
         data_gen_train = cls_data_generator.DataGenerator(
             params=params, split=train_splits[split_cnt]
-        )
+        ) # init a class that generator the train data, split = [1, 2, 3]
 
         logging.info('Loading validation dataset:')
         data_gen_val = cls_data_generator.DataGenerator(
             params=params, split=val_splits[split_cnt], shuffle=False, per_file=True
-        )
+        ) # init a class that generator the validation data split = [4] ,room4 
 
         # Collect i/o data size and load model configuration, load model weights to model
         # model we used are wrapped in models/ folder, you can modify it in parameter.py  
