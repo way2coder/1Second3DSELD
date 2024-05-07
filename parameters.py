@@ -41,7 +41,7 @@ def get_params(argv='1'):
         fmax_spectra_salsalite=9000,
 
         # MODEL TYPE
-        modality='audio',  # 'audio' or 'audio_visual'
+        modality='audio_visual',  # 'audio' or 'audio_visual'
         multi_accdoa=False,  # False - Single-ACCDOA or True - Multi-ACCDOA
         thresh_unify=15,    # Required for Multi-ACCDOA only. Threshold of unification for inference in degrees.
 

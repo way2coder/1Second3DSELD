@@ -17,7 +17,7 @@ import math
 import wave
 import contextlib
 import cv2
-
+from spafe.fbanks import mel_fbanks, gammatone_fbanks, bark_fbanks
 
 
 def nCr(n, r):
@@ -33,7 +33,7 @@ class FeatureClass:
         """
         # Input directories
         self._feat_label_dir = params['feat_label_dir']
-        self._dataset_dir = params['dataset_dir']
+        self._dataset_dir = params['dataset_dir'] 
         self._dataset_combination = '{}_{}'.format(params['dataset'], 'eval' if is_eval else 'dev')
         self._aud_dir = os.path.join(self._dataset_dir, self._dataset_combination)
 
@@ -49,25 +49,26 @@ class FeatureClass:
         # Local parameters
         self._is_eval = is_eval
 
-        self._fs = params['fs']
+        self._fs = params['fs']  # 24000
         self._hop_len_s = params['hop_len_s']
-        self._hop_len = int(self._fs * self._hop_len_s)
+        self._hop_len = int(self._fs * self._hop_len_s) # 480
 
-        self._label_hop_len_s = params['label_hop_len_s']
-        self._label_hop_len = int(self._fs * self._label_hop_len_s)
-        self._label_frame_res = self._fs / float(self._label_hop_len)
-        self._nb_label_frames_1s = int(self._label_frame_res)
+        self._label_hop_len_s = params['label_hop_len_s']  # 0.1 second
+        self._label_hop_len = int(self._fs * self._label_hop_len_s) # 2400  sample
+        self._label_frame_res = self._fs / float(self._label_hop_len) # 10.0 
 
-        self._win_len = 2 * self._hop_len
-        self._nfft = self._next_greater_power_of_2(self._win_len)
+        self._win_len = 2 * self._hop_len # 960
+        self._nfft = self._next_greater_power_of_2(self._win_len) # 1024 
 
-        self._dataset = params['dataset']
+        self._dataset = params['dataset'] # foa
         self._eps = 1e-8
         self._nb_channels = 4
 
-        self._multi_accdoa = params['multi_accdoa']
-        self._use_salsalite = params['use_salsalite']
-        if self._use_salsalite and self._dataset=='mic':
+        self._multi_accdoa = params['multi_accdoa']  # bool
+
+        self._filter_type = params['filter']  # "mel", "gammatone", "bark"
+        self._use_salsalite = params['use_salsalite'] # bool
+        if self._use_salsalite and self._dataset=='mic': #  _use_salsalite is valid only when the dataset config is mic
             # Initialize the spatial feature constants
             self._lower_bin = np.int(np.floor(params['fmin_doa_salsalite'] * self._nfft / np.float(self._fs)))
             self._lower_bin = np.max((1, self._lower_bin))
@@ -87,9 +88,19 @@ class FeatureClass:
             self._nb_mel_bins = self._cutoff_bin - self._lower_bin
         else:
             self._nb_mel_bins = params['nb_mel_bins']
+            
             self._mel_wts = librosa.filters.mel(sr=self._fs, n_fft=self._nfft, n_mels=self._nb_mel_bins).T
+            if self._filter_type == 'mel':
+                self._mel_wts = librosa.filters.mel(sr=self._fs, n_fft=self._nfft, n_mels=self._nb_mel_bins).T
+            elif self._filter_type == 'gammatone':
+                self._mel_wts = gammatone_fbanks.gammatone_filter_banks(nfilts=self._nb_mel_bins, nfft=self._nfft, fs=self._fs, scale='descendant').T
+            elif self._filter_type == 'bark':
+                self._mel_wts = bark_fbanks.bark_filter_banks(nfilts=self._nb_mel_bins, nfft=self._nfft, fs=self._fs).T
+            else:
+                raise ValueError("Unsupported filter type: {}".format(self._filter_type))
+    
         # Sound event classes dictionary
-        self._nb_unique_classes = params['unique_classes']
+        self._nb_unique_classes = params['unique_classes'] #13 
 
         self._filewise_frames = {}
 
@@ -112,7 +123,7 @@ class FeatureClass:
                 self._filewise_frames[file_name.split('.')[0]] = [nb_feat_frames, nb_label_frames]
         return
 
-    def _load_audio(self, audio_path):
+    def _load_audio(self, audio_path): # load wav file from audio_path
         fs, audio = wav.read(audio_path)
         audio = audio[:, :self._nb_channels] / 32768.0 + self._eps
         return audio, fs
@@ -132,7 +143,7 @@ class FeatureClass:
             spectra.append(stft_ch[:, :_nb_frames])
         return np.array(spectra).T
 
-    def _get_mel_spectrogram(self, linear_spectra):
+    def _get_mel_spectrogram(self, linear_spectra): # get mel spectrogram
         mel_feat = np.zeros((linear_spectra.shape[0], self._nb_mel_bins, linear_spectra.shape[-1]))
         for ch_cnt in range(linear_spectra.shape[-1]):
             mag_spectra = np.abs(linear_spectra[:, :, ch_cnt])**2
@@ -188,14 +199,14 @@ class FeatureClass:
 
     def _get_spectrogram_for_file(self, audio_filename):
         
-        audio_in, fs = self._load_audio(audio_filename)
-
-        nb_feat_frames = int(len(audio_in) / float(self._hop_len))
-        nb_label_frames = int(len(audio_in) / float(self._label_hop_len))
+        audio_in, fs = self._load_audio(audio_filename)  # ((1072800, 4), 24000)  (-1, 1) + 1e-8 
+ 
+        nb_feat_frames = int(len(audio_in) / float(self._hop_len))   # 2235 = 1072800 / 480
+        nb_label_frames = int(len(audio_in) / float(self._label_hop_len)) # 447 = 1072800/2400
         self._filewise_frames[os.path.basename(audio_filename).split('.')[0]] = [nb_feat_frames, nb_label_frames]
 
-        audio_spec = self._spectrogram(audio_in, nb_feat_frames)
-        return audio_spec
+        audio_spec = self._spectrogram(audio_in, nb_feat_frames)  # (2235, 513, 4) time, frequency, channel
+        return audio_spec 
 
     # OUTPUT LABELS
     def get_labels_for_file(self, _desc_file, _nb_label_frames):
@@ -347,21 +358,21 @@ class FeatureClass:
         label_mat = np.stack((se_label, x_label, y_label, z_label, dist_label), axis=2)  # [nb_frames, 6, 5(=act+XYZ+dist), max_classes]
         return label_mat
 
-    # ------------------------------- EXTRACT FEATURE AND PREPROCESS IT -------------------------------
+    # ------------------------------- EXTRACT AUDIO FEATURE AND PREPROCESS IT -------------------------------
 
-    def extract_file_feature(self, _arg_in):
-        _file_cnt, _wav_path, _feat_path = _arg_in
-        spect = self._get_spectrogram_for_file(_wav_path)
+    def extract_file_feature(self, _arg_in): # 提取单个wav文件的特征
+        _file_cnt, _wav_path, _feat_path = _arg_in (1, '../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix002.wav', '../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy')
+        spect = self._get_spectrogram_for_file(_wav_path) #  (2235, 513, 4)
 
         # extract mel
         if not self._use_salsalite:
-            mel_spect = self._get_mel_spectrogram(spect)
+            mel_spect = self._get_mel_spectrogram(spect) # get mel from spectrogram, (2235, 256)
 
         feat = None
         if self._dataset == 'foa':
-            # extract intensity vectors
-            foa_iv = self._get_foa_intensity_vectors(spect)
-            feat = np.concatenate((mel_spect, foa_iv), axis=-1)
+            # extract intensity vectors from spect 
+            foa_iv = self._get_foa_intensity_vectors(spect) # 2235, 192
+            feat = np.concatenate((mel_spect, foa_iv), axis=-1) # 2235, 448 = 2235, 64*7 = T, 64, 7
         elif self._dataset == 'mic':
             if self._use_salsalite:
                 feat = self._get_salsalite(spect)
@@ -375,11 +386,11 @@ class FeatureClass:
 
         if feat is not None:
             print('{}: {}, {}'.format(_file_cnt, os.path.basename(_wav_path), feat.shape))
-            np.save(_feat_path, feat)
-
-    def extract_all_feature(self):
+            np.save(_feat_path, feat)  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy
+  
+    def extract_all_feature(self): 
         # setting up folders
-        self._feat_dir = self.get_unnormalized_feat_dir()
+        self._feat_dir = self.get_unnormalized_feat_dir() # '../Dataset/STARSS2023/feat_label_hnet/foa_dev'
         create_folder(self._feat_dir)
         from multiprocessing import Pool
         import time
@@ -387,16 +398,16 @@ class FeatureClass:
         # extraction starts
         print('Extracting spectrogram:')
         print('\t\taud_dir {}\n\t\tdesc_dir {}\n\t\tfeat_dir {}'.format(
-            self._aud_dir, self._desc_dir, self._feat_dir))
-        arg_list = []
-        for sub_folder in os.listdir(self._aud_dir):
-            loc_aud_folder = os.path.join(self._aud_dir, sub_folder)
+            self._aud_dir, self._desc_dir, self._feat_dir))  ('../Dataset/STARSS2023\\foa_dev', '../Dataset/STARSS2023\\metadata_dev', '../Dataset/STARSS2023/feat_label_hnet/foa_dev')
+        arg_list = [] 
+        for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
+            loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
             for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
                 wav_filename = '{}.wav'.format(file_name.split('.')[0])
-                wav_path = os.path.join(loc_aud_folder, wav_filename)
-                feat_path = os.path.join(self._feat_dir, '{}.npy'.format(wav_filename.split('.')[0]))
-                self.extract_file_feature((file_cnt, wav_path, feat_path))
-                arg_list.append((file_cnt, wav_path, feat_path))
+                wav_path = os.path.join(loc_aud_folder, wav_filename) # ../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix001.wav
+                feat_path = os.path.join(self._feat_dir, '{}.npy'.format(wav_filename.split('.')[0]))  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix001.npy
+                self.extract_file_feature((file_cnt, wav_path, feat_path)) # 提取单个wav文件的特征
+                arg_list.append((file_cnt, wav_path, feat_path)) 
 #        with Pool() as pool:
 #            result = pool.map(self.extract_file_feature, iterable=arg_list)
 #            pool.close()
@@ -405,13 +416,13 @@ class FeatureClass:
 
     def preprocess_features(self):
         # Setting up folders and filenames
-        self._feat_dir = self.get_unnormalized_feat_dir()
-        self._feat_dir_norm = self.get_normalized_feat_dir()
-        create_folder(self._feat_dir_norm)
-        normalized_features_wts_file = self.get_normalized_wts_file()
+        self._feat_dir = self.get_unnormalized_feat_dir() # ../Dataset/STARSS2023/feat_label_hnet/foa_dev
+        self._feat_dir_norm = self.get_normalized_feat_dir()  # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_norm'
+        create_folder(self._feat_dir_norm) 
+        normalized_features_wts_file = self.get_normalized_wts_file() #../Dataset/STARSS2023/feat_label_hnet/foa_wts
         spec_scaler = None
 
-        # pre-processing starts
+        # pre-processing starts, wts is needed only when _is_eval is true;
         if self._is_eval:
             spec_scaler = joblib.load(normalized_features_wts_file)
             print('Normalized_features_wts_file: {}. Loaded.'.format(normalized_features_wts_file))
@@ -436,7 +447,7 @@ class FeatureClass:
         print('\t\tfeat_dir_norm {}'.format(self._feat_dir_norm))
         for file_cnt, file_name in enumerate(os.listdir(self._feat_dir)):
             print('{}: {}'.format(file_cnt, file_name))
-            feat_file = np.load(os.path.join(self._feat_dir, file_name))
+            feat_file = np.load(os.path.join(self._feat_dir, file_name)) 
             feat_file = spec_scaler.transform(feat_file)
             np.save(
                 os.path.join(self._feat_dir_norm, file_name),
@@ -447,7 +458,7 @@ class FeatureClass:
         print('normalized files written to {}'.format(self._feat_dir_norm))
 
     # ------------------------------- EXTRACT LABELS AND PREPROCESS IT -------------------------------
-    def extract_all_labels(self):
+    def extract_all_labels(self): 
         self.get_frame_stats()
         self._label_dir = self.get_label_dir()
 
@@ -470,20 +481,20 @@ class FeatureClass:
                 np.save(os.path.join(self._label_dir, '{}.npy'.format(wav_filename.split('.')[0])), label_mat)
 
     # ------------------------------- EXTRACT VISUAL FEATURES AND PREPROCESS IT -------------------------------
-    @staticmethod
+    @staticmethod 
     def _read_vid_frames(vid_filename):
         cap = cv2.VideoCapture(vid_filename)
         pil_frames = []
         frame_cnt = 0
         while True:
-            ret, frame = cap.read()
+            ret, frame = cap.read()   # ret: bool, frame: ndarray 960, 1920, 3 height width channel
             if not ret:
                 break
-            if frame_cnt % 3 == 0:
-                resized_frame = cv2.resize(frame, (360, 180))
-                frame_rgb = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)
-                pil_frame = Image.fromarray(frame_rgb)
-                pil_frames.append(pil_frame)
+            if frame_cnt % 3 == 0:   # every 3 frame 
+                resized_frame = cv2.resize(frame, (360, 180))   # resize image to 180, 360, 3
+                frame_rgb = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)  # BGR2RGB
+                pil_frame = Image.fromarray(frame_rgb) # ndarray to PIL 
+                pil_frames.append(pil_frame) # 
             frame_cnt += 1
         cap.release()
         cv2.destroyAllWindows()
@@ -494,14 +505,14 @@ class FeatureClass:
         _file_cnt, _mp4_path, _vid_feat_path = _arg_in
         vid_feat = None
 
-        vid_frames = self._read_vid_frames(_mp4_path)
-        pretrained_vid_model = VideoFeatures()
-        vid_feat = pretrained_vid_model(vid_frames)
-        vid_feat = np.array(vid_feat)
+        vid_frames = self._read_vid_frames(_mp4_path) # len(vid_frames):T/5, vid_frames[i]{ image mode=RGB size=360x180}
+        pretrained_vid_model = VideoFeatures()  
+        vid_feat = pretrained_vid_model(vid_frames)    # tensor shape   T/5, 7, 7
+        vid_feat = np.array(vid_feat) 
 
         if vid_feat is not None:
             print('{}: {}, {}'.format(_file_cnt, os.path.basename(_mp4_path), vid_feat.shape))
-            np.save(_vid_feat_path, vid_feat)
+            np.save(_vid_feat_path, vid_feat)  # feat_label_hnet/video_dev/_vid_feat_path  ->
 
     def extract_visual_features(self):
         self._vid_feat_dir = self.get_vid_feat_dir()
@@ -509,14 +520,14 @@ class FeatureClass:
         print('Extracting visual features:')
         print('\t\t vid_dir {} \n\t\t vid_feat_dir {}'.format(
             self._vid_dir, self._vid_feat_dir))
-        for sub_folder in os.listdir(self._vid_dir):
+        for sub_folder in os.listdir(self._vid_dir): # self.vid_dir '../Dataset/STARSS2023\\video_dev'
             loc_vid_folder = os.path.join(self._vid_dir, sub_folder)
             for file_cnt, file_name in enumerate(os.listdir(loc_vid_folder)):
-                print(file_name)
+                print(file_name) # fold4_room23_mix001.mp4
                 mp4_filename = '{}.mp4'.format(file_name.split('.')[0])
-                mp4_path = os.path.join(loc_vid_folder, mp4_filename)
-                vid_feat_path = os.path.join(self._vid_feat_dir, '{}.npy'.format(mp4_filename.split('.')[0]))
-                self.extract_file_vid_feature((file_cnt, mp4_path, vid_feat_path))
+                mp4_path = os.path.join(loc_vid_folder, mp4_filename) # '../Dataset/STARSS2023\\video_dev\\dev-test-sony\\fold4_room23_mix001.mp4'
+                vid_feat_path = os.path.join(self._vid_feat_dir, '{}.npy'.format(mp4_filename.split('.')[0])) # '../Dataset/STARSS2023/feat_label_hnet/video_dev\\fold4_room23_mix001.npy'
+                self.extract_file_vid_feature((file_cnt, mp4_path, vid_feat_path)) 
 
     # -------------------------------  DCASE OUTPUT  FORMAT FUNCTIONS -------------------------------
     def load_output_format_file(self, _output_format_file, cm2m=False):  # TODO: Reconsider cm2m conversion

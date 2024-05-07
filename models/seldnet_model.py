@@ -63,7 +63,7 @@ class SeldModel(torch.nn.Module):
 
     def forward(self, x, vid_feat=None):
         """input: (batch_size, mic_channels, time_steps, mel_bins)"""
-        # x.shape 128, 7, 250, 64
+        # x.shape 128, 7, 250, 64 vid_feat.shape 
         for conv_cnt in range(len(self.conv_block_list)):
             x = self.conv_block_list[conv_cnt](x)
         # x.shape batchsize, 64, 50, 2
