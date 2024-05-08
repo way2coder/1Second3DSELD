@@ -45,6 +45,7 @@ def get_params(argv='1'):
         # MODEL TYPE
         modality='audio_visual',  # 'audio' or 'audio_visual'
         multi_accdoa=False,  # False - Single-ACCDOA or True - Multi-ACCDOA
+        output_format = 'multi_accdoa', # 'single_accdoa', 'single_accdoa'(adpit), 
         thresh_unify=15,    # Required for Multi-ACCDOA only. Threshold of unification for inference in degrees.
 
         # DNN MODEL PARAMETERS

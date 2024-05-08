@@ -70,6 +70,7 @@ class FeatureClass:
         self._nb_channels = 4
 
         self._multi_accdoa = params['multi_accdoa']  # bool
+        self._output_format = params['output_format']
 
         self._filter_type = params['filter']  # "mel", "gammatone", "bark"
 
@@ -109,10 +110,10 @@ class FeatureClass:
         # Sound event classes dictionary
         self._nb_unique_classes = params['unique_classes'] #13 
 
-        self._filewise_frames = {}
+        self._filewise_frames = {}  # 文件名： 特征时间帧，以及label时间帧
 
     def get_frame_stats(self):
-
+        # 
         if len(self._filewise_frames) != 0:
             return
 
@@ -120,14 +121,14 @@ class FeatureClass:
         print('\t\taud_dir {}\n\t\tdesc_dir {}\n\t\tfeat_dir {}'.format(
             self._aud_dir, self._desc_dir, self._feat_dir))
         for sub_folder in os.listdir(self._aud_dir):
-            loc_aud_folder = os.path.join(self._aud_dir, sub_folder)
-            for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
+            loc_aud_folder = os.path.join(self._aud_dir, sub_folder)   #'../Dataset/STARSS2023\\foa_dev\\dev-test-sony'
+            for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)): 
                 wav_filename = '{}.wav'.format(file_name.split('.')[0])
                 with contextlib.closing(wave.open(os.path.join(loc_aud_folder, wav_filename), 'r')) as f:
                     audio_len = f.getnframes()
-                nb_feat_frames = int(audio_len / float(self._hop_len))
-                nb_label_frames = int(audio_len / float(self._label_hop_len))
-                self._filewise_frames[file_name.split('.')[0]] = [nb_feat_frames, nb_label_frames]
+                nb_feat_frames = int(audio_len / float(self._hop_len))   # 1456800 / 480
+                nb_label_frames = int(audio_len / float(self._label_hop_len))   #  1456800 / 2400 
+                self._filewise_frames[file_name.split('.')[0]] = [nb_feat_frames, nb_label_frames] # {'fold4_room23_mix001': [3035, 607]}
         return
 
     def _load_audio(self, audio_path): # load wav file from audio_path
@@ -487,7 +488,7 @@ class FeatureClass:
                 nb_label_frames = self._filewise_frames[file_name.split('.')[0]][1]
                 desc_file_polar = self.load_output_format_file(os.path.join(loc_desc_folder, file_name))
                 desc_file = self.convert_output_format_polar_to_cartesian(desc_file_polar)
-                if self._multi_accdoa:
+                if self._multi_accdoa: 
                     label_mat = self.get_adpit_labels_for_file(desc_file, nb_label_frames)
                 else:
                     label_mat = self.get_labels_for_file(desc_file, nb_label_frames)
@@ -748,6 +749,7 @@ class FeatureClass:
         else:
             return os.path.join(
                 self._feat_label_dir,
+                f'{self._dataset_combination}_{self._output_format}_label'
                '{}_label'.format('{}_adpit'.format(self._dataset_combination) if self._multi_accdoa else self._dataset_combination)
         )
 
