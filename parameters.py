@@ -43,14 +43,21 @@ def get_params(argv='1'):
 
 
         # MODEL TYPE
-        modality='audio_visual',  # 'audio' or 'audio_visual'
-        multi_accdoa=False,  # False - Single-ACCDOA or True - Multi-ACCDOA
-        output_format = 'multi_accdoa', # 'single_accdoa', 'single_accdoa'(adpit), 
+        modality='audio',  # 'audio' or 'audio_visual'
+        
+        # OUTPUT FORMAT 
+        multi_accdoa=True,  # False - Single-ACCDOA or True - Multi-ACCDOA
+        output_format = 'single_accdoa', # 'single_accdoa', 'multi_accdoa'(adpit), polar
+
         thresh_unify=15,    # Required for Multi-ACCDOA only. Threshold of unification for inference in degrees.
+        
+        seperate_polar = False, # Required for output_format = polar only, decide wether the azimuth and elevation should be pridicted seperatedly.
+
+
 
         # DNN MODEL PARAMETERS
         model = 'SeldModel',   # model will be trained, default: SeldModel
-        label_sequence_length=50,    # Feature sequence length
+        label_sequence_length=50,    # Feature sequence length 
         batch_size=128,              # Batch size
         dropout_rate=0.05,           # Dropout rate, constant for all layers
         nb_cnn2d_filt=64,           # Number of CNN nodes, constant for each layer
@@ -91,11 +98,29 @@ def get_params(argv='1'):
         params['dataset'] = 'foa'
         params['multi_accdoa'] = False
 
+    elif argv == '21':
+        print("FOA + single ACCDOA\n + mel")
+        params['quick_test'] = False
+        params['filter'] = 'mel'
+        params['dataset'] = 'foa'
+        params['multi_accdoa'] = False 
+        params['output_format'] = 'single_accdoa'
+    
+    elif argv == '32':
+        print("FOA + single ACCDOA\n + gammatone")
+        params['quick_test'] = False
+        params['filter'] = 'gammatone'
+        params['dataset'] = 'foa'
+        params['multi_accdoa'] = False 
+        params['output_format'] = 'single_accdoa'
+
     elif argv == '3':
         print("FOA + multi ACCDOA\n")
         params['quick_test'] = False
         params['dataset'] = 'foa'
         params['multi_accdoa'] = True
+        params['output_format'] = 'multi_accdoa'
+        # params['finetune_mode'] = False
 
     elif argv == '4':
         print("MIC + GCC + ACCDOA\n")
@@ -135,7 +160,22 @@ def get_params(argv='1'):
         exit()
 
     
-    feature_label_resolution = int(params['label_hop_len_s'] // params['hop_len_s']) # 5 = 0.1 / 0.02
+    feature_label_resolution = int(params['label_hop_len_s'] // params['hop_len_s'])
+    '''
+    5 = 0.1 / 0.02 , 
+    params['label_sequence_length'] = 50, first 
+    params['label_hop_len_s'] is 100ms because the annotation file resulotion is 100ms, the relative attributes are:
+        self._label_hop_len_s = params['label_hop_len_s']  # 0.1 second
+        self._label_hop_len = int(self._fs * self._label_hop_len_s) # 2400  sample
+        self._label_frame_res = self._fs / float(self._label_hop_len) # 10.0 , there are 10 label output in one second 
+    feature_label_resolution: 
+    params['hop_len_s'] is used to calculate the mel spectrum, and it is in second. The relative attributes are:
+        self._hop_len = int(self._fs * self._hop_len_s) # 480
+        self._win_len = 2 * self._hop_len # 960 
+        self._nfft = self._next_greater_power_of_2(self._win_len) # 1024 
+    params['feature_sequence_length'] = params['label_sequence_length'] * feature_label_resolution
+    
+    '''
     params['feature_sequence_length'] = params['label_sequence_length'] * feature_label_resolution # 50 * 5 
     params['t_pool_size'] = [feature_label_resolution, 1, 1]  # CNN time pooling   [5, 1, 1]
     params['patience'] = int(params['nb_epochs'])  # Stop training if patience is reached 250
@@ -152,7 +192,8 @@ def get_params(argv='1'):
         params['unique_classes'] = 13
     elif '2024' in params['dataset_dir']:
         params['unique_classes'] = 13
-
+    
+    # print params 
     for key, value in params.items():
         print("\t{}: {}".format(key, value))
     return params

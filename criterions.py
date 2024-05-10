@@ -2,13 +2,14 @@
 Multi criterions are encompassed in this file. 
 One can design custom loss function in this file and add its clss name in run.py
 '''
-
+import math
+from itertools import permutations
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
-
+from torch.nn.modules.loss import _Loss
+from typing import Tuple
 
 class MSELoss_ADPIT(object):
     def __init__(self):
@@ -97,3 +98,68 @@ class MSELoss_ADPIT(object):
                 loss_12 * (loss_min == 12)).mean()
 
         return loss
+    
+
+
+
+class SELLoss(_Loss):
+    def __init__(self, max_num_sources: int, alpha: float = 1.0, reduction='none') -> None:
+        super(SELLoss, self).__init__(reduction=reduction)
+        if not (0 <= alpha <= 1):
+            raise ValueError('The weighting parameter must be a number between 0 and 1.')
+        self.alpha = alpha
+        self.permutations = torch.from_numpy(np.array(list(permutations(range(max_num_sources)))))
+        self.max_num_sources = max_num_sources
+
+    @staticmethod
+    def compute_spherical_distance(y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+        sine_term = torch.sin(y_pred[..., 0]) * torch.sin(y_true[..., 0])
+        cosine_term = torch.cos(y_pred[..., 0]) * torch.cos(y_true[..., 0]) * torch.cos(y_true[..., 1] - y_pred[..., 1])
+        return torch.acos(F.hardtanh(sine_term + cosine_term, min_val=-1, max_val=1))
+
+    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> Tuple[torch.Tensor, dict]:
+        source_activity_pred, direction_of_arrival_pred, _ = predictions
+        source_activity_target, direction_of_arrival_target = targets
+
+        # Create mask for active sources
+        source_activity_mask = source_activity_target.bool().unsqueeze(-1).expand_as(direction_of_arrival_pred)
+        
+        # Apply mask
+        direction_of_arrival_pred_masked = direction_of_arrival_pred.masked_fill(~source_activity_mask, 0)
+        direction_of_arrival_target_masked = direction_of_arrival_target.masked_fill(~source_activity_mask, 0)
+
+        # BCE loss for source activity
+        source_activity_bce_loss = F.binary_cross_entropy_with_logits(source_activity_pred, source_activity_target, reduction=self.reduction)
+    
+        # Spherical distance
+        spherical_distance = self.compute_spherical_distance(direction_of_arrival_pred_masked, direction_of_arrival_target_masked)
+        # important! the  source_activity_bce_loss and the spherical_distance's shape are all [16, 25, 4]
+
+        # write your code  
+        breakpoint()
+        total_loss = torch.mean(source_activity_bce_loss) + self.alpha* torch.mean(spherical_distance) 
+        
+        meta_data = {
+            'source_activity_loss': torch.mean(source_activity_bce_loss),  # Convert to Python number
+            'direction_of_arrival_loss': torch.mean(spherical_distance) 
+         # Convert to Python number
+        }
+
+        return total_loss, meta_data
+
+def compute_angular_distance(x, y):
+    """Computes the angle between two spherical direction-of-arrival points.
+
+    :param x: single direction-of-arrival, where the first column is the azimuth and second column is elevation
+    :param y: single or multiple DoAs, where the first column is the azimuth and second column is elevation
+    :return: angular distance
+    """
+    if np.ndim(x) != 1:
+        raise ValueError('First DoA must be a single value.')
+
+    return np.arccos(np.sin(x[0]) * np.sin(y[0]) + np.cos(x[0]) * np.cos(y[0]) * np.cos(y[1] - x[1]))
+
+
+def get_num_params(model):
+    """Returns the number of trainable parameters of a PyTorch model."""
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)

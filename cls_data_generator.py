@@ -3,32 +3,39 @@
 #
 
 import os
+import sys
 import numpy as np
 import cls_feature_class
 from IPython import embed
 from collections import deque
 import random
-
+import parameters
 
 class DataGenerator(object):
     def __init__(
             self, params, split=1, shuffle=True, per_file=False, is_eval=False
     ):
-        self._per_file = per_file
+        '''
+        per_file : decide whether one file will be trained in batch 
+        '''
+        self._per_file = per_file   
         self._is_eval = is_eval
-        self._splits = np.array(split)
-        self._batch_size = params['batch_size']
-        self._feature_seq_len = params['feature_sequence_length']
-        self._label_seq_len = params['label_sequence_length']
+        self._splits = np.array(split)    #[1 ,2, 3] actually is [3]
+        self._batch_size = params['batch_size'] # 128    
+        self._feature_seq_len = params['feature_sequence_length'] #  250 params['feature_sequence_length'] = params['label_sequence_length'] * feature_label_resolution # 50 * 5 
+        # feature_label_resolution
+        # self.hop
+        self._label_seq_len = params['label_sequence_length']  # 50 
         self._shuffle = shuffle
         self._feat_cls = cls_feature_class.FeatureClass(params=params, is_eval=self._is_eval)
-        self._label_dir = self._feat_cls.get_label_dir() 
+        self._label_dir = self._feat_cls.get_label_dir()  # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_multi_accdoa_label'
         self._feat_dir = self._feat_cls.get_normalized_feat_dir()  # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm'
         self._multi_accdoa = params['multi_accdoa']
+        self._output_format = params['output_format']
 
         self._filenames_list = list()
         self._nb_frames_file = 0     # Using a fixed number of frames in feat files. Updated in _get_label_filenames_sizes()
-        self._nb_mel_bins = self._feat_cls.get_nb_mel_bins()
+        self._nb_mel_bins = self._feat_cls.get_nb_mel_bins() # 62 
         self._nb_ch = None
         self._label_len = None  # total length of label - DOA + SED
         self._doa_len = None    # DOA label length 
@@ -71,7 +78,7 @@ class DataGenerator(object):
         if self._is_eval:
             label_shape = None
         else:
-            if self._multi_accdoa is True:
+            if self._output_format == 'multi_accdoa':
                 label_shape = (self._batch_size, self._label_seq_len, self._nb_classes*3*4)
             else:
                 label_shape = (self._batch_size, self._label_seq_len, self._nb_classes*4)
@@ -85,43 +92,47 @@ class DataGenerator(object):
         return self._nb_total_batches
 
     def _get_filenames_list_and_feat_label_sizes(self):
-        print('Computing some stats about the dataset')
-        max_frames, total_frames, temp_feat = -1, 0, []
-        for filename in os.listdir(self._feat_dir):
+        print('Computing some stats about the dataset')   
+        max_frames, total_frames, temp_feat = -1, 0, []   
+        for filename in os.listdir(self._feat_dir):  #'../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm'
             if int(filename[4]) in self._splits:  # check which split the file belongs to fold3/ fold4
                 if self._modality == 'audio' or (hasattr(self, '_vid_feat_dir') and os.path.exists(os.path.join(self._vid_feat_dir, filename))):   # some audio files do not have corresponding videos. Ignore them.
                     self._filenames_list.append(filename)
-                    temp_feat = np.load(os.path.join(self._feat_dir, filename))
-                    total_frames += (temp_feat.shape[0] - (temp_feat.shape[0] % self._feature_seq_len))
+                    temp_feat = np.load(os.path.join(self._feat_dir, filename))  # load npy from ''../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm\\fold3_room12_mix001.npy'
+                    total_frames += (temp_feat.shape[0] - (temp_feat.shape[0] % self._feature_seq_len)) # temp_feat (12664, 448) % 250(input size for neural network)
+                    # 12664 - (122664 % 250 = 164 ) = 12500 
                     if temp_feat.shape[0]>max_frames:
-                        max_frames = temp_feat.shape[0]
+                        max_frames = temp_feat.shape[0] # restore the max frame for the spectrum 
 
         if len(temp_feat)!=0:
-            self._nb_frames_file = max_frames if self._per_file else temp_feat.shape[0]
-            self._nb_ch = temp_feat.shape[1] // self._nb_mel_bins
+            self._nb_frames_file = max_frames if self._per_file else temp_feat.shape[0]  # 10693, 19430
+            self._nb_ch = temp_feat.shape[1] // self._nb_mel_bins # 448 / 64 = 7
         else:
             print('Loading features failed')
             exit()
 
         if not self._is_eval:
             temp_label = np.load(os.path.join(self._label_dir, self._filenames_list[0]))
-            if self._multi_accdoa is True:
+            # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_multi_accdoa_label\\fold3_room12_mix001.npy'
+            # (2532, 6, 5, 13)
+            if self._output_format == 'multi_accdoa':
                 self._num_track_dummy = temp_label.shape[-3]
-                self._num_axis = temp_label.shape[-2]
+                self._num_axis = temp_label.shape[-2]  
                 self._num_class = temp_label.shape[-1]
             else:
                 self._label_len = temp_label.shape[-1]
             self._doa_len = 3 # Cartesian
 
         if self._per_file:
-            self._batch_size = int(np.ceil(max_frames/float(self._feature_seq_len)))
+            self._batch_size = int(np.ceil(max_frames/float(self._feature_seq_len))) # 19430 / 250 
             print('\tWARNING: Resetting batch size to {}. To accommodate the inference of longest file of {} frames in a single batch'.format(self._batch_size, max_frames))
             self._nb_total_batches = len(self._filenames_list)
         else:
-            self._nb_total_batches = int(np.floor(total_frames / (self._batch_size*self._feature_seq_len)))
-
-        self._feature_batch_seq_len = self._batch_size*self._feature_seq_len
-        self._label_batch_seq_len = self._batch_size*self._label_seq_len
+            self._nb_total_batches = int(np.floor(total_frames / (self._batch_size*self._feature_seq_len))) 
+            # 735500 / 32000 = 22 
+ 
+        self._feature_batch_seq_len = self._batch_size*self._feature_seq_len  # 32000 = 128 * 250 
+        self._label_batch_seq_len = self._batch_size*self._label_seq_len # 6400 = 128 * 50
 
         if self._modality == 'audio_visual':
             self._vid_feature_batch_seq_len = self._batch_size*self._vid_feature_seq_len
@@ -134,7 +145,7 @@ class DataGenerator(object):
         :return: 
         """
         if self._shuffle:
-            random.shuffle(self._filenames_list)
+            random.shuffle(self._filenames_list) # ['fold3_*_*.npy']
 
         # Ideally this should have been outside the while loop. But while generating the test data we want the data
         # to be the same exactly for all epoch's hence we keep it here.
@@ -208,7 +219,7 @@ class DataGenerator(object):
                         temp_vid_feat = np.load(os.path.join(self._vid_feat_dir, self._filenames_list[file_cnt]))
 
                     if not self._per_file:
-                        # Inorder to support variable length features, and labels of different resolution.
+                        # In order to support variable length features, and labels of different resolution.
                         # We remove all frames in features and labels matrix that are outside
                         # the multiple of self._label_seq_len and self._feature_seq_len. Further we do this only in training.
                         temp_label = temp_label[:temp_label.shape[0] - (temp_label.shape[0] % self._label_seq_len)]
@@ -237,7 +248,7 @@ class DataGenerator(object):
                                 (vid_feat_extra_frames, temp_vid_feat.shape[1], temp_vid_feat.shape[2])) * 1e-6
 
                         label_extra_frames = self._label_batch_seq_len - temp_label.shape[0]
-                        if self._multi_accdoa is True:
+                        if self._output_format == 'multi_accdoa':
                             extra_labels = np.zeros(
                                 (label_extra_frames, self._num_track_dummy, self._num_axis, self._num_class))
                         else:
@@ -264,7 +275,7 @@ class DataGenerator(object):
                     for v in range(self._vid_feature_batch_seq_len):
                         vid_feat[v, :, :] = self._circ_buf_vid_feat.popleft()
 
-                if self._multi_accdoa is True:
+                if self._output_format == 'multi_accdoa':
                     label = np.zeros(
                         (self._label_batch_seq_len, self._num_track_dummy, self._num_axis, self._num_class))
                     for j in range(self._label_batch_seq_len):
@@ -281,7 +292,7 @@ class DataGenerator(object):
                     vid_feat = self._vid_feat_split_in_seqs(vid_feat, self._vid_feature_seq_len)
 
                 label = self._split_in_seqs(label, self._label_seq_len)
-                if self._multi_accdoa is True:
+                if self._output_format == 'multi_accdoa':
                     pass
                 else:
                     mask = label[:, :, :self._nb_classes]
@@ -365,3 +376,14 @@ class DataGenerator(object):
 
     def write_output_format_file(self, _out_file, _out_dict):
         return self._feat_cls.write_output_format_file(_out_file, _out_dict)
+
+def main(argv):
+    task_id = '1' if len(argv) < 2 else argv[1]
+    params = parameters.get_params(task_id)
+    test_dataloader = DataGenerator(params=params, split=[3], shuffle=True)
+    data = test_dataloader.generate()
+    # for data in test_dataloader.generate():
+    #     print(type(data))      # feat (128, 7, 250, 64) (barchsize, channel, time, freq) label (128, 50, 6, 5, 13)   (barchsize, time, multi, (xyz,sed,dis), class)
+
+if __name__ == '__main__':
+    main(sys.argv)

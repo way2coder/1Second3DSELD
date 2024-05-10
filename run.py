@@ -98,7 +98,9 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
     # Number of frames for a 60 second audio with 100ms hop length = 600 frames
     # Number of frames in one batch (batch_size* sequence_length) consists of all the 600 frames above with zero padding in the remaining frames
     test_filelist = data_generator.get_filelist()
-    
+    # inference_time, loss_time, reshape_time, write_time = 0., 0., 0., 0.
+    import time 
+
     nb_test_batches, test_loss = 0, 0.
     model.eval()
     file_cnt = 0
@@ -111,10 +113,15 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
             elif len(values) == 3:
                 data, vid_feat, target = values
                 data, vid_feat, target = torch.tensor(data).to(device).float(), torch.tensor(vid_feat).to(device).float(), torch.tensor(target).to(device).float()
+            
                 output = model(data, vid_feat)
-            loss = criterion(output, target)
+            # inference_time += time.time() - start_time
 
-            if params['multi_accdoa'] is True:
+            start_time = time.time()
+            loss = criterion(output, target)
+            # loss_time += time.time() - start_time
+
+            if params['output_format'] == 'multi_accdoa':
                 sed_pred0, doa_pred0, dist_pred0, sed_pred1, doa_pred1, dist_pred1, sed_pred2, doa_pred2, dist_pred2 = get_multi_accdoa_labels(output.detach().cpu().numpy(), params['unique_classes'])
                 sed_pred0 = reshape_3Dto2D(sed_pred0) # 5700, 13
                 doa_pred0 = reshape_3Dto2D(doa_pred0) # 5700, 39
@@ -129,13 +136,14 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
                 sed_pred, doa_pred = get_accdoa_labels(output.detach().cpu().numpy(), params['unique_classes'])
                 sed_pred = reshape_3Dto2D(sed_pred)
                 doa_pred = reshape_3Dto2D(doa_pred)
-
+            
+            # reshape_time += time.time() - start_time
             # dump SELD results to the correspondin file
             # file nameformat 3_1_dev_split0_multiaccdoa_foa_val\\fold4_room10_mix003.csv   test_filelist[file_cnt] --- 'fold4_room10_mix003.npy'
             output_file = os.path.join(dcase_output_folder, test_filelist[file_cnt].replace('.npy', '.csv')) 
             file_cnt += 1 # file_cnt update
             output_dict = {} # initiate per batch 
-            if params['multi_accdoa'] is True:
+            if params['output_format'] == 'multi_accdoa':
                 for frame_cnt in range(sed_pred0.shape[0]): # for each batchsize & timestep 
                     for class_cnt in range(sed_pred0.shape[1]): # for each class 
                         # determine whether track0 is similar to track1 
@@ -190,16 +198,17 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
                             if frame_cnt not in output_dict:
                                 output_dict[frame_cnt] = []
                             output_dict[frame_cnt].append([class_cnt, doa_pred[frame_cnt][class_cnt], doa_pred[frame_cnt][class_cnt+params['unique_classes']], doa_pred[frame_cnt][class_cnt+2*params['unique_classes']]]) 
+            
+            start_time = time.time()
             data_generator.write_output_format_file(output_file, output_dict)
-
+            write_time += time.time() - start_time
 
             test_loss += loss.item()
             nb_test_batches += 1
             if params['quick_test'] and nb_test_batches == 4:
                 break
-
         test_loss /= nb_test_batches
-
+    # print(f'Time for each stage are{inference_time},{loss_time},{reshape_time},{write_time}') Time for each stage are3.2587361335754395,0.1810741424560547,5.755268812179565,51.642672300338745
     return test_loss
 
 
@@ -280,7 +289,8 @@ def main(argv):
               'You can use any number or string for this.')
         logging.info('-------------------------------------------------------------------------------------------------------')
         logging.info('\n\n')
-
+    for key, value in params.items():
+        logging.info("\t{}: {}".format(key, value))
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
     # torch.autograd.set_detect_anomaly(True) 用于开启自动求导过程中的异常检测功能。
@@ -329,11 +339,11 @@ def main(argv):
                 loc_feat = '{}_salsa'.format(params['dataset'])
             else:
                 loc_feat = '{}_gcc'.format(params['dataset'])
-        loc_output = 'multiaccdoa' if params['multi_accdoa'] else 'accdoa'
+        # loc_output = 'multiaccdoa' if params['multi_accdoa'] else 'accdoa'
 
         cls_feature_class.create_folder(params['model_dir'])
         unique_name = '{}_{}_{}_split{}_{}_{}'.format(
-            task_id, job_id, params['mode'], split_cnt, loc_output, loc_feat
+            task_id, job_id, params['mode'], split_cnt, params['output_format'], loc_feat
         )
         model_name = '{}_{}.h5'.format(os.path.join(params['model_dir'], unique_name),params['model'])
         logging.info("unique_name: {}\n".format(unique_name))
@@ -392,11 +402,12 @@ def main(argv):
         optimizer = optim.Adam(model.parameters(), lr=params['lr'])
 
         # criterion
-        if params['multi_accdoa'] is True:
+        if params['output_format'] == 'multi_accdoa':
             criterion = MSELoss_ADPIT()
-        else:
+        elif params['output_format'] == 'single_accdoa':
             criterion = nn.MSELoss()
-        
+        elif params['output_format'] == 'polar':
+            pass 
         for epoch_cnt in range(nb_epoch):
             # ---------------------------------------------------------------------
             # TRAINING
@@ -411,10 +422,12 @@ def main(argv):
             start_time = time.time()
             val_loss = test_epoch(data_gen_val, model, criterion, dcase_output_val_folder, params, device)
             # Calculate the DCASE 2021 metrics - Location-aware detection and Class-aware localization scores
-
+            val_time = time.time() - start_time
+            
+            start_time = time.time()
             val_ER, val_F, val_LE, val_dist_err, val_rel_dist_err, val_LR, val_seld_scr, classwise_val_scr = score_obj.get_SELD_Results(dcase_output_val_folder)
 
-            val_time = time.time() - start_time
+            metric__time = time.time() - start_time
 
             # Save model if F-score is good F socre? 
             if val_F >= best_F:
@@ -427,11 +440,11 @@ def main(argv):
 
             # logging.info stats
             logging.info(
-                'epoch: {}, time: {:0.2f}/{:0.2f}, '
+                'epoch: {}, time: {:0.2f}/{:0.2f}/{:0.2f}, '
                 'train_loss: {:0.4f}, val_loss: {:0.4f}, '
                 'F/AE/Dist_err/Rel_dist_err/SELD: {}, '
                 'best_val_epoch: {} {}'.format(
-                    epoch_cnt, train_time, val_time,
+                    epoch_cnt, train_time, val_time,metric__time,
                     train_loss, val_loss,
                     '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(val_F, val_LE, val_dist_err, val_rel_dist_err, val_seld_scr),
                     best_val_epoch,

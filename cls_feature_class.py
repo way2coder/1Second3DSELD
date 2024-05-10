@@ -113,7 +113,8 @@ class FeatureClass:
         self._filewise_frames = {}  # 文件名： 特征时间帧，以及label时间帧
 
     def get_frame_stats(self):
-        # 
+        # Initialized the self._filewise_frames = {}, what this dictionary stored is {'fold4_room23_mix001': [3035, 607]}
+        #  if {'fold4_room23_mix001': [3035, 607]}, then it indictates that the length of the audio is 60.7 s 607 ms
         if len(self._filewise_frames) != 0:
             return
 
@@ -218,35 +219,62 @@ class FeatureClass:
 
         audio_spec = self._spectrogram(audio_in, nb_feat_frames)  # (2235, 513, 4) time, frequency, channel
         return audio_spec 
-
-    # OUTPUT LABELS
-    def get_labels_for_file(self, _desc_file, _nb_label_frames):
-        """
-        Reads description file and returns classification based SED labels and regression based DOA labels
+    # OUTPUT LABELs
+    def get_polar_labels_for_file(self, _desc_file, _nb_label_frames):
+        '''
+        Reads description file and returns classification based SED labels and regression based DOA labels in cartesian
 
         :param _desc_file: metadata description file
-        :return: label_mat: of dimension [nb_frames, 3*max_classes], max_classes each for x, y, z axis,
+        :param _nb_label_frames: the number of the frames based on the label resolution  of one file, typically a number of hundreds
+        :return: label_mat: of dimension [nb_frames, 4*max_classes], max_classes each for event_activity, azimuth, elevation, distance
+        '''
+        se_label = np.zeros((_nb_label_frames, self._nb_unique_classes))    
+        azimuth_label = np.zeros((_nb_label_frames, self._nb_unique_classes))
+        elevation_label = np.zeros((_nb_label_frames, self._nb_unique_classes))
+        dist_label = np.zeros((_nb_label_frames, self._nb_unique_classes))    # 
+
+        for frame_ind, active_event_list in _desc_file.items():
+            if frame_ind < _nb_label_frames:
+                for active_event in active_event_list:  
+                    #active event [8, 0, 0.9702957262759965, 0.24192189559966773, 0.0, 392.0]
+                    se_label[frame_ind, active_event[0]] = 1
+                    azimuth_label[frame_ind, active_event[0]] = active_event[-3]
+                    elevation_label[frame_ind, active_event[0]] = active_event[-2]
+                    dist_label[frame_ind, active_event[0]] = active_event[-1]
+
+        label_mat = np.concatenate((se_label, azimuth_label, elevation_label, dist_label), axis=1) # 607, 13 * 5 
+        return label_mat
+    
+
+    # OUTPUT LABELS
+    def get_cartesian_labels_for_file(self, _desc_file, _nb_label_frames):
+        """
+        Reads description file and returns classification based SED labels and regression based DOA labels in cartesian
+
+        :param _desc_file: metadata description file
+        :param _nb_label_frames: the number of the frames based on the label resolution  of one file, typically a hundreds number 
+        :return: label_mat: of dimension [nb_frames, 5*max_classes], max_classes each for event_activity,x, y, z axis,distance
         """
 
         # If using Hungarian net set default DOA value to a fixed value greater than 1 for all axis. We are choosing a fixed value of 10
         # If not using Hungarian net use a deafult DOA, which is a unit vector. We are choosing (x, y, z) = (0, 0, 1)
-        se_label = np.zeros((_nb_label_frames, self._nb_unique_classes))
+        se_label = np.zeros((_nb_label_frames, self._nb_unique_classes))    
         x_label = np.zeros((_nb_label_frames, self._nb_unique_classes))
         y_label = np.zeros((_nb_label_frames, self._nb_unique_classes))
-        z_label = np.zeros((_nb_label_frames, self._nb_unique_classes))
-        dist_label = np.zeros((_nb_label_frames, self._nb_unique_classes))
+        z_label = np.zeros((_nb_label_frames, self._nb_unique_classes))     # (607, 13)
+        dist_label = np.zeros((_nb_label_frames, self._nb_unique_classes))    # 
 
         for frame_ind, active_event_list in _desc_file.items():
             if frame_ind < _nb_label_frames:
-                for active_event in active_event_list:
-                    #print(active_event)
+                for active_event in active_event_list:  
+                    #active event [8, 0, 0.9702957262759965, 0.24192189559966773, 0.0, 392.0]
                     se_label[frame_ind, active_event[0]] = 1
                     x_label[frame_ind, active_event[0]] = active_event[2]
                     y_label[frame_ind, active_event[0]] = active_event[3]
                     z_label[frame_ind, active_event[0]] = active_event[4]
                     dist_label[frame_ind, active_event[0]] = active_event[5]
 
-        label_mat = np.concatenate((se_label, x_label, y_label, z_label, dist_label), axis=1)
+        label_mat = np.concatenate((se_label, x_label, y_label, z_label, dist_label), axis=1) # 607, 13 * 5 
         return label_mat
 
     # OUTPUT LABELS
@@ -260,14 +288,15 @@ class FeatureClass:
         """
 
         se_label = np.zeros((_nb_label_frames, 6, self._nb_unique_classes))  # [nb_frames, 6, max_classes]
-        x_label = np.zeros((_nb_label_frames, 6, self._nb_unique_classes))
+        x_label = np.zeros((_nb_label_frames, 6, self._nb_unique_classes))   # (607, 6, 13)
         y_label = np.zeros((_nb_label_frames, 6, self._nb_unique_classes))
         z_label = np.zeros((_nb_label_frames, 6, self._nb_unique_classes))
         dist_label = np.zeros((_nb_label_frames, 6, self._nb_unique_classes))
 
         for frame_ind, active_event_list in _desc_file.items():
             if frame_ind < _nb_label_frames:
-                active_event_list.sort(key=lambda x: x[0])  # sort for ov from the same class
+                active_event_list.sort(key=lambda x: x[0])  # sort for ov from the same class 
+                # Sort the event according to the class number increasingly
                 active_event_list_per_class = []
                 for i, active_event in enumerate(active_event_list):
                     active_event_list_per_class.append(active_event)
@@ -474,8 +503,8 @@ class FeatureClass:
 
     # ------------------------------- EXTRACT LABELS AND PREPROCESS IT -------------------------------
     def extract_all_labels(self): 
-        self.get_frame_stats()
-        self._label_dir = self.get_label_dir()
+        self.get_frame_stats() # 
+        self._label_dir = self.get_label_dir()  # feat_label_hnet\foa_dev_multi_accdoa_label
 
         print('Extracting labels:')
         print('\t\taud_dir {}\n\t\tdesc_dir {}\n\t\tlabel_dir {}'.format(
@@ -483,15 +512,19 @@ class FeatureClass:
         create_folder(self._label_dir)
         for sub_folder in os.listdir(self._desc_dir):
             loc_desc_folder = os.path.join(self._desc_dir, sub_folder)
-            for file_cnt, file_name in enumerate(os.listdir(loc_desc_folder)):
+            for file_cnt, file_name in enumerate(os.listdir(loc_desc_folder)):   
+                # for each file(like fold4_room23_mix001.csv), process it into label hop frames according to the self._filewise_frames
                 wav_filename = '{}.wav'.format(file_name.split('.')[0])
-                nb_label_frames = self._filewise_frames[file_name.split('.')[0]][1]
-                desc_file_polar = self.load_output_format_file(os.path.join(loc_desc_folder, file_name))
-                desc_file = self.convert_output_format_polar_to_cartesian(desc_file_polar)
-                if self._multi_accdoa: 
+                nb_label_frames = self._filewise_frames[file_name.split('.')[0]][1]  # 607 
+                desc_file_polar = self.load_output_format_file(os.path.join(loc_desc_folder, file_name))  
+                    #'../Dataset/STARSS2023\\metadata_dev\\dev-test-sony\\fold4_room23_mix001.csv'
+                desc_file = self.convert_output_format_polar_to_cartesian(desc_file_polar)    # len(desc_file)
+                if self._output_format == 'multi_accdoa': 
                     label_mat = self.get_adpit_labels_for_file(desc_file, nb_label_frames)
-                else:
-                    label_mat = self.get_labels_for_file(desc_file, nb_label_frames)
+                elif self._output_format == 'single_accdoa':
+                    label_mat = self.get_cartesian_labels_for_file(desc_file, nb_label_frames)  # (607, 65)
+                elif self._output_format == 'polar':
+                    label_mat = self.get_polar_labels_for_file(desc_file_polar, nb_label_frames) # 
                 print('{}: {}, {}'.format(file_cnt, file_name, label_mat.shape))
                 np.save(os.path.join(self._label_dir, '{}.npy'.format(wav_filename.split('.')[0])), label_mat)
 
@@ -559,23 +592,28 @@ class FeatureClass:
     def load_output_format_file(self, _output_format_file, cm2m=False):  # TODO: Reconsider cm2m conversion
         """
         Loads DCASE output format csv file and returns it in dictionary format
+        For instance, the output format of DCASE 2024 is : 
+            [frame number (int)], [active class index (int)], [source number index (int)], [azimuth (int)], [elevation (int)], [distance (int)]
+        After processing according to frame hop length, the ouput is:
 
         :param _output_format_file: DCASE output format CSV
         :return: _output_dict: dictionary
         """
-        _output_dict = {}
+        _output_dict = {}    # {1: [[8, 0, 14.0, 0.0, 392.0], [5, 0, -37.0, -18.0, 205.0]], 
         _fid = open(_output_format_file, 'r')
         # next(_fid)
         _words = []     # For empty files
         for _line in _fid:
-            _words = _line.strip().split(',')
-            _frame_ind = int(_words[0])
-            if _frame_ind not in _output_dict:
+            _words = _line.strip().split(',')   #'1,8,0,14,0,392\n'
+            _frame_ind = int(_words[0])    # 1
+            if _frame_ind not in _output_dict: 
                 _output_dict[_frame_ind] = []
             if len(_words) == 4:  # frame, class idx,  polar coordinates(2) # no distance data, for example in eval pred
                 _output_dict[_frame_ind].append([int(_words[1]), 0, float(_words[2]), float(_words[3])])
             if len(_words) == 5:  # frame, class idx, source_id, polar coordinates(2) # no distance data, for example in synthetic data fold 1 and 2
                 _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4])])
+            
+            # In DCASE 2024, len _words == 6 
             if len(_words) == 6: # frame, class idx, source_id, polar coordinates(2), distance
                 _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4]), float(_words[5])/100 if cm2m else float(_words[5])])
             elif len(_words) == 7: # frame, class idx, source_id, cartesian coordinates(3), distance
@@ -583,7 +621,7 @@ class FeatureClass:
         _fid.close()
         if len(_words) == 7:
             _output_dict = self.convert_output_format_cartesian_to_polar(_output_dict)
-        return _output_dict
+        return _output_dict   # len(_output_dict) == 606 == label time resolution
 
     def write_output_format_file(self, _output_format_file, _output_format_dict):
         """
@@ -599,7 +637,7 @@ class FeatureClass:
             for _value in _output_format_dict[_frame_ind]:
                 # Write Cartesian format output. Since baseline does not estimate track count and distance we use fixed values.
                 _fid.write('{},{},{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[1]), float(_value[2]), float(_value[3]), float(_value[4])))
-                # TODO: What if our system estimates track cound and distence (or only one of them)
+                # TODO: What if our system estimates track count and distence (or only one of them)
         _fid.close()
 
     def segment_labels(self, _pred_dict, _max_frames):
@@ -698,7 +736,17 @@ class FeatureClass:
         return _output_dict
 
     def convert_output_format_polar_to_cartesian(self, in_dict):
-        out_dict = {}
+        """
+        Convert output format of polar to cartesian.
+        For instance, in in_dict the format is
+            1: [[8, 0, 14.0, 0.0, 392.0], [5, 0, -37.0, -18.0, 205.0]]
+        In out_dict the format is 
+            1: [[8, 0, 0.9702957262759965, 0.24192189559966773, 0.0, 392.0], [5, 0, 0.7595475059751814, -0.5723600993730742, -0.3090169943749474, 205.0]]
+
+        :param in_dict: dictionary whose keys are time frame and values are events properties
+        :return :dictionary whose keys are time frame and values are events properties, but in cartesian format
+        """
+        out_dict = {}  
         for frame_cnt in in_dict.keys():
             if frame_cnt not in out_dict:
                 out_dict[frame_cnt] = []
@@ -749,8 +797,7 @@ class FeatureClass:
         else:
             return os.path.join(
                 self._feat_label_dir,
-                f'{self._dataset_combination}_{self._output_format}_label'
-               '{}_label'.format('{}_adpit'.format(self._dataset_combination) if self._multi_accdoa else self._dataset_combination)
+                f'{self._dataset_combination}_{self._output_format}_label'               
         )
 
     def get_normalized_wts_file(self):
