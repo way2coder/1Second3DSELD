@@ -15,7 +15,7 @@ def get_params(argv='1'):
 
         # INPUT PATH
         # dataset_dir='DCASE2020_SELD_dataset/',  # Base folder containing the foa/mic and metadata folders
-        dataset_dir='../Dataset/STARSS2023',  # server '../../dataset/STARSS2023' 
+        dataset_dir= '../Dataset/STARSS2023',  # server '../../dataset/STARSS2023' 
 
         # OUTPUT PATHS
         # feat_label_dir='DCASE2020_SELD_dataset/feat_label_hnet/',  # Directory to dump extracted features and labels
@@ -47,7 +47,7 @@ def get_params(argv='1'):
         
         # OUTPUT FORMAT 
         multi_accdoa=True,  # False - Single-ACCDOA or True - Multi-ACCDOA
-        output_format = 'single_accdoa', # 'single_accdoa', 'multi_accdoa'(adpit), polar
+        output_format = 'polar', # 'single_accdoa', 'multi_accdoa'(adpit), polar
 
         thresh_unify=15,    # Required for Multi-ACCDOA only. Threshold of unification for inference in degrees.
         
@@ -73,7 +73,9 @@ def get_params(argv='1'):
         nb_fnn_layers=1,
         fnn_size=128,  # FNN contents, length of list = number of layers, list value = number of nodes
 
+        # HYPER PARAMETERS
         nb_epochs=250,  # Train for maximum epochs
+        nb_early_stop_patience = 50,  # if the validation loss have not improved for 50 epochs, then stop trainning 
         lr=1e-3,
 
         # METRIC
@@ -97,14 +99,17 @@ def get_params(argv='1'):
         params['quick_test'] = False
         params['dataset'] = 'foa'
         params['multi_accdoa'] = False
+        params['output_format'] = 'single_accdoa'
+        params['finetune_mode'] = False
 
     elif argv == '21':
         print("FOA + single ACCDOA\n + mel")
         params['quick_test'] = False
         params['filter'] = 'mel'
         params['dataset'] = 'foa'
-        params['multi_accdoa'] = False 
-        params['output_format'] = 'single_accdoa'
+        # params['multi_accdoa'] = False 
+        params['output_format'] = 'polar'
+        params['finetune_mode'] = False
     
     elif argv == '32':
         print("FOA + single ACCDOA\n + gammatone")
@@ -155,6 +160,13 @@ def get_params(argv='1'):
         print("QUICK TEST MODE\n")
         params['quick_test'] = True
 
+    elif argv == '250':
+        params['dataset_dir'] = '../Dataset/STARSS2023'
+        params['feat_label_dir'] = '../Dataset/STARSS2023/feat_label_hnet/' 
+        params['fs'] = 
+
+
+
     else:
         print('ERROR: unknown argument {}'.format(argv))
         exit()
@@ -163,7 +175,7 @@ def get_params(argv='1'):
     feature_label_resolution = int(params['label_hop_len_s'] // params['hop_len_s'])
     '''
     5 = 0.1 / 0.02 , 
-    params['label_sequence_length'] = 50, first 
+    params['label_sequence_length'] = 50, first, output timestep is 50 that is 50 * 100 = 5000ms = 5s  ?
     params['label_hop_len_s'] is 100ms because the annotation file resulotion is 100ms, the relative attributes are:
         self._label_hop_len_s = params['label_hop_len_s']  # 0.1 second
         self._label_hop_len = int(self._fs * self._label_hop_len_s) # 2400  sample
@@ -178,7 +190,6 @@ def get_params(argv='1'):
     '''
     params['feature_sequence_length'] = params['label_sequence_length'] * feature_label_resolution # 50 * 5 
     params['t_pool_size'] = [feature_label_resolution, 1, 1]  # CNN time pooling   [5, 1, 1]
-    params['patience'] = int(params['nb_epochs'])  # Stop training if patience is reached 250
     params['model_dir'] = params['model_dir'] + '_' + params['modality']  # folder name of this 
     params['dcase_output_dir'] = params['dcase_output_dir'] + '_' + params['modality'] # 
 

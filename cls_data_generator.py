@@ -30,7 +30,7 @@ class DataGenerator(object):
         self._feat_cls = cls_feature_class.FeatureClass(params=params, is_eval=self._is_eval)
         self._label_dir = self._feat_cls.get_label_dir()  # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_multi_accdoa_label'
         self._feat_dir = self._feat_cls.get_normalized_feat_dir()  # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm'
-        self._multi_accdoa = params['multi_accdoa']
+        # self._multi_accdoa = params['multi_accdoa']
         self._output_format = params['output_format']
 
         self._filenames_list = list()
@@ -119,8 +119,8 @@ class DataGenerator(object):
                 self._num_track_dummy = temp_label.shape[-3]
                 self._num_axis = temp_label.shape[-2]  
                 self._num_class = temp_label.shape[-1]
-            else:
-                self._label_len = temp_label.shape[-1]
+            else:  # single_accoda or polar
+                self._label_len = temp_label.shape[-1]  # (2532, 65)
             self._doa_len = 3 # Cartesian
 
         if self._per_file:
@@ -133,7 +133,7 @@ class DataGenerator(object):
  
         self._feature_batch_seq_len = self._batch_size*self._feature_seq_len  # 32000 = 128 * 250 
         self._label_batch_seq_len = self._batch_size*self._label_seq_len # 6400 = 128 * 50
-
+        # params['audio_visual'] used to determine wether should calculate the vid_feature_batch_seq_len 
         if self._modality == 'audio_visual':
             self._vid_feature_batch_seq_len = self._batch_size*self._vid_feature_seq_len
 
@@ -149,6 +149,7 @@ class DataGenerator(object):
 
         # Ideally this should have been outside the while loop. But while generating the test data we want the data
         # to be the same exactly for all epoch's hence we keep it here.
+        # breakpoint()
         self._circ_buf_feat = deque()
         self._circ_buf_label = deque()
 
@@ -211,10 +212,10 @@ class DataGenerator(object):
         else:
             for i in range(self._nb_total_batches):
                 # load feat and label to circular buffer. Always maintain atleast one batch worth feat and label in the
-                # circular buffer. If not keep refilling it.
+                # circular buffer. If not keep refilling it. self._feature_batch_seq_len = batchsize * T 
                 while (len(self._circ_buf_feat) < self._feature_batch_seq_len or (hasattr(self, '_circ_buf_vid_feat') and hasattr(self, '_vid_feature_batch_seq_len') and len(self._circ_buf_vid_feat) < self._vid_feature_batch_seq_len)):
-                    temp_feat = np.load(os.path.join(self._feat_dir, self._filenames_list[file_cnt]))
-                    temp_label = np.load(os.path.join(self._label_dir, self._filenames_list[file_cnt]))
+                    temp_feat = np.load(os.path.join(self._feat_dir, self._filenames_list[file_cnt])) # (6500, 448) -> (timestep ,64*7)
+                    temp_label = np.load(os.path.join(self._label_dir, self._filenames_list[file_cnt])) # singleaccdoa (1300, 65) -> (timestep/5, 13*5) multiaccdoa (1095, 6, 5, 13)
                     if self._modality == 'audio_visual':
                         temp_vid_feat = np.load(os.path.join(self._vid_feat_dir, self._filenames_list[file_cnt]))
 
@@ -223,15 +224,15 @@ class DataGenerator(object):
                         # We remove all frames in features and labels matrix that are outside
                         # the multiple of self._label_seq_len and self._feature_seq_len. Further we do this only in training.
                         temp_label = temp_label[:temp_label.shape[0] - (temp_label.shape[0] % self._label_seq_len)]
-                        temp_mul = temp_label.shape[0] // self._label_seq_len
-                        temp_feat = temp_feat[:temp_mul * self._feature_seq_len, :]
+                        temp_mul = temp_label.shape[0] // self._label_seq_len # 1300 / 50 = 26 
+                        temp_feat = temp_feat[:temp_mul * self._feature_seq_len, :] # [:26 * 250 ]
                         if self._modality == 'audio_visual':
                             temp_vid_feat = temp_vid_feat[:temp_mul * self._vid_feature_seq_len, :, :]
 
                     for f_row in temp_feat:
-                        self._circ_buf_feat.append(f_row)
+                        self._circ_buf_feat.append(f_row)   # 6250 -> 17500 
                     for l_row in temp_label:
-                        self._circ_buf_label.append(l_row)
+                        self._circ_buf_label.append(l_row) # 1250 -> 3500
 
                     if self._modality == 'audio_visual':
                         for vf_row in temp_vid_feat:
@@ -266,9 +267,9 @@ class DataGenerator(object):
 
                     # Read one batch size from the circular buffer
                 feat = np.zeros((self._feature_batch_seq_len, self._nb_mel_bins * self._nb_ch))
-                for j in range(self._feature_batch_seq_len):
+                for j in range(self._feature_batch_seq_len): # 32000 = 128 * 250 
                     feat[j, :] = self._circ_buf_feat.popleft()
-                feat = np.reshape(feat, (self._feature_batch_seq_len, self._nb_ch, self._nb_mel_bins))
+                feat = np.reshape(feat, (self._feature_batch_seq_len, self._nb_ch, self._nb_mel_bins)) #  32000, 7, 64
 
                 if self._modality == 'audio_visual':
                     vid_feat = np.zeros((self._vid_feature_batch_seq_len, 7, 7))
@@ -277,31 +278,34 @@ class DataGenerator(object):
 
                 if self._output_format == 'multi_accdoa':
                     label = np.zeros(
-                        (self._label_batch_seq_len, self._num_track_dummy, self._num_axis, self._num_class))
+                        (self._label_batch_seq_len, self._num_track_dummy, self._num_axis, self._num_class)) # 128 * 50= 6400, 6, 5, 13 
                     for j in range(self._label_batch_seq_len):
                         label[j, :, :, :] = self._circ_buf_label.popleft()
-                else:
+                elif self._output_format == 'single_accdoa' or self._output_format == 'polar': # TODO: the size of label need to be changed? 
                     label = np.zeros((self._label_batch_seq_len, self._label_len))
                     for j in range(self._label_batch_seq_len):
                         label[j, :] = self._circ_buf_label.popleft()
-
                 # Split to sequences
-                feat = self._split_in_seqs(feat, self._feature_seq_len)
+                feat = self._split_in_seqs(feat, self._feature_seq_len) # 32700, 7, 64 - > (128, 250, 7, 64)
                 feat = np.transpose(feat, (0, 2, 1, 3))
                 if self._modality == 'audio_visual':
                     vid_feat = self._vid_feat_split_in_seqs(vid_feat, self._vid_feature_seq_len)
-
-                label = self._split_in_seqs(label, self._label_seq_len)
+ 
+                label = self._split_in_seqs(label, self._label_seq_len) # multiaccdoa (6400, 6, 5, 13)-> (128, 50, 6, 5, 13)   # 6400, 65, -> 128, 50, 65
                 if self._output_format == 'multi_accdoa':
                     pass
-                else:
-                    mask = label[:, :, :self._nb_classes]
-                    mask = np.tile(mask, 4)
-                    label = mask * label[:, :, self._nb_classes:]
+                elif self._output_format == 'single_accdoa':  
+                    # TODO: polar
+                    mask = label[:, :, :self._nb_classes]  # 
+                    mask = np.tile(mask, 4)   # 
+                    label = mask * label[:, :, self._nb_classes:]#   128, 50, 65->  (128, 50, 52)
+                elif self._output_format == 'polar':
+                    pass
+
                 if self._modality == 'audio_visual':
                     yield feat, vid_feat, label
                 else:
-                    yield feat, label
+                    yield feat, label     # multiaccdoa:(128, 50, 6, 5, 13)  single  (128, 50, 52)
 
     def _split_in_seqs(self, data, _seq_len): # data - 250*8, 7, 64 - 250
         if len(data.shape) == 1:
@@ -374,16 +378,16 @@ class DataGenerator(object):
     def get_data_gen_mode(self):
         return self._is_eval
 
-    def write_output_format_file(self, _out_file, _out_dict):
-        return self._feat_cls.write_output_format_file(_out_file, _out_dict)
+    def write_output_format_file(self, _out_file, _out_dict, _output_format):
+        return self._feat_cls.write_output_format_file(_out_file, _out_dict, self._output_format)
 
 def main(argv):
     task_id = '1' if len(argv) < 2 else argv[1]
     params = parameters.get_params(task_id)
     test_dataloader = DataGenerator(params=params, split=[3], shuffle=True)
-    data = test_dataloader.generate()
-    # for data in test_dataloader.generate():
-    #     print(type(data))      # feat (128, 7, 250, 64) (barchsize, channel, time, freq) label (128, 50, 6, 5, 13)   (barchsize, time, multi, (xyz,sed,dis), class)
+    i = 0
+    for data in test_dataloader.generate():
+        i += 1   # feat (128, 7, 250, 64) (barchsize, channel, time, freq) label (128, 50, 6, 5, 13)   (barchsize, time, multi, (xyz,sed,dis), class)
 
 if __name__ == '__main__':
     main(sys.argv)

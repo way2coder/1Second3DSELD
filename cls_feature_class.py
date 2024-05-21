@@ -69,7 +69,7 @@ class FeatureClass:
         self._eps = 1e-8
         self._nb_channels = 4
 
-        self._multi_accdoa = params['multi_accdoa']  # bool
+        # self._multi_accdoa = params['multi_accdoa']  # bool
         self._output_format = params['output_format']
 
         self._filter_type = params['filter']  # "mel", "gammatone", "bark"
@@ -236,11 +236,11 @@ class FeatureClass:
         for frame_ind, active_event_list in _desc_file.items():
             if frame_ind < _nb_label_frames:
                 for active_event in active_event_list:  
-                    #active event [8, 0, 0.9702957262759965, 0.24192189559966773, 0.0, 392.0]
+                    # [8, 0, 14.0, 0.0, 392.0]   azimuth elevation -> rad 
                     se_label[frame_ind, active_event[0]] = 1
-                    azimuth_label[frame_ind, active_event[0]] = active_event[-3]
-                    elevation_label[frame_ind, active_event[0]] = active_event[-2]
-                    dist_label[frame_ind, active_event[0]] = active_event[-1]
+                    azimuth_label[frame_ind, active_event[0]] = np.deg2rad(active_event[-3])
+                    elevation_label[frame_ind, active_event[0]] = np.deg2rad(active_event[-2])
+                    dist_label[frame_ind, active_event[0]] = active_event[-1]/100
 
         label_mat = np.concatenate((se_label, azimuth_label, elevation_label, dist_label), axis=1) # 607, 13 * 5 
         return label_mat
@@ -263,7 +263,7 @@ class FeatureClass:
         y_label = np.zeros((_nb_label_frames, self._nb_unique_classes))
         z_label = np.zeros((_nb_label_frames, self._nb_unique_classes))     # (607, 13)
         dist_label = np.zeros((_nb_label_frames, self._nb_unique_classes))    # 
-
+        breakpoint()
         for frame_ind, active_event_list in _desc_file.items():
             if frame_ind < _nb_label_frames:
                 for active_event in active_event_list:  
@@ -272,7 +272,7 @@ class FeatureClass:
                     x_label[frame_ind, active_event[0]] = active_event[2]
                     y_label[frame_ind, active_event[0]] = active_event[3]
                     z_label[frame_ind, active_event[0]] = active_event[4]
-                    dist_label[frame_ind, active_event[0]] = active_event[5]
+                    dist_label[frame_ind, active_event[0]] = active_event[5]/100
 
         label_mat = np.concatenate((se_label, x_label, y_label, z_label, dist_label), axis=1) # 607, 13 * 5 
         return label_mat
@@ -620,24 +620,38 @@ class FeatureClass:
                 _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4]), float(_words[5]), float(_words[6])/100 if cm2m else float(_words[6])])
         _fid.close()
         if len(_words) == 7:
-            _output_dict = self.convert_output_format_cartesian_to_polar(_output_dict)
+            _output_dict = self.convert_output_format_cartesian_to_polar(_output_dict) # WHY ?TODO
         return _output_dict   # len(_output_dict) == 606 == label time resolution
 
-    def write_output_format_file(self, _output_format_file, _output_format_dict):
+    def write_output_format_file(self, _output_format_file, _output_format_dict, _output_format):
         """
         Writes DCASE output format csv file, given output format dictionary
 
         :param _output_format_file:
         :param _output_format_dict:
+        :param _output_format: 'multi_accoda', 'single_accdoa', 'polar'
         :return:
         """
         _fid = open(_output_format_file, 'w')
-        # _fid.write('{},{},{},{}\n'.format('frame number with 20ms hop (int)', 'class index (int)', 'azimuth angle (int)', 'elevation angle (int)'))
-        for _frame_ind in _output_format_dict.keys():
-            for _value in _output_format_dict[_frame_ind]:
-                # Write Cartesian format output. Since baseline does not estimate track count and distance we use fixed values.
-                _fid.write('{},{},{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[1]), float(_value[2]), float(_value[3]), float(_value[4])))
-                # TODO: What if our system estimates track count and distence (or only one of them)
+        if _output_format == 'multi_accdoa':
+            # _fid.write('{},{},{},{}\n'.format('frame number with 20ms hop (int)', 'class index (int)', 'azimuth angle (int)', 'elevation angle (int)'))
+            for _frame_ind in _output_format_dict.keys():
+                for _value in _output_format_dict[_frame_ind]:
+                    # Write Cartesian format output. Since baseline does not estimate track count and distance we use fixed values.
+                    _fid.write('{},{},{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[1]), float(_value[2]), float(_value[3]), float(_value[4])))
+                    # TODO: What if our system estimates track count and distence (or only one of them)
+        elif _output_format == 'single_accoda':
+            for _frame_ind in _output_format_dict.keys():
+                for _value in _output_format_dict[_frame_ind]:
+                    # Write Cartesian format output. Since baseline does not estimate track count and distance we use fixed values.
+                    _fid.write('{},{},{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[1]), float(_value[2]), float(_value[3]), float(_value[4])))
+                    # TODO: What if our system estimates track count and distence (or only one of them)
+        elif _output_format == 'polar':
+            for _frame_ind in _output_format_dict.keys():
+                for _value in _output_format_dict[_frame_ind]:
+                    # Write Cartesian format output. Since baseline does not estimate track count and distance we use fixed values.
+                    _fid.write('{},{},{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[1]), float(_value[2]), float(_value[3]), float(_value[4])))
+                    # TODO: What if our system estimates track count and distence (or only one of them)
         _fid.close()
 
     def segment_labels(self, _pred_dict, _max_frames):
@@ -694,12 +708,13 @@ class FeatureClass:
         for frame_idx in range(0, _max_frames):
             if frame_idx not in _pred_dict:
                 continue
-            for [class_idx, track_idx, az, el, *dist] in _pred_dict[frame_idx]:
-                if class_idx not in output_dict[frame_idx]:
+            for [class_idx, track_idx, az, el, *dist] in _pred_dict[frame_idx]:  # the pred dict are xyz not ele azi[[8, 0, 0.9702957262759965, 0.24192189559966773, 0.0, 3.92], [5, 0, 0.7595475059751814, -0.5723600993730742, -0.3090169943749474, 2.05]]
+                if class_idx not in output_dict[frame_idx]: 
                     output_dict[frame_idx][class_idx] = {}
                 # assert track_idx not in output_dict[frame_idx][class_idx]  # I don't know why sometimes this happens... they seem to be repeated DOAs # TODO: Is this still happening?
                 output_dict[frame_idx][class_idx][track_idx] = [az, el] + dist
-
+        #1: {8: {0: [0.9702957262759965, 0.24192189559966773, 0.0, 3.92]}, 5: {0: [0.7595475059751814, -0.5723600993730742, -0.3090169943749474, 2.05]}}
+        # frame: {class: {track: [x, y, z, dist]}}
         return output_dict
 
     def regression_label_format_to_output_format(self, _sed_labels, _doa_labels):
@@ -753,14 +768,40 @@ class FeatureClass:
                 for tmp_val in in_dict[frame_cnt]:
                     ele_rad = tmp_val[3]*np.pi/180.
                     azi_rad = tmp_val[2]*np.pi/180.
-
+                    # 
                     tmp_label = np.cos(ele_rad)
                     x = np.cos(azi_rad) * tmp_label
                     y = np.sin(azi_rad) * tmp_label
                     z = np.sin(ele_rad)
                     out_dict[frame_cnt].append(tmp_val[0:2] + [x, y, z] + tmp_val[4:])
         return out_dict
+    
+    def convert_output_format_polar_to_cartesian(self, in_dict):
+        """
+        Convert output format of polar to cartesian.
+        For instance, in in_dict the format is
+            1: [[8, 0, 14.0, 0.0, 392.0], [5, 0, -37.0, -18.0, 205.0]]
+        In out_dict the format is 
+            1: [[8, 0, 0.9702957262759965, 0.24192189559966773, 0.0, 392.0], [5, 0, 0.7595475059751814, -0.5723600993730742, -0.3090169943749474, 205.0]]
 
+        :param in_dict: dictionary whose keys are time frame and values are events properties
+        :return :dictionary whose keys are time frame and values are events properties, but in cartesian format
+        """
+        out_dict = {}  
+        for frame_cnt in in_dict.keys():
+            if frame_cnt not in out_dict:
+                out_dict[frame_cnt] = []
+                for tmp_val in in_dict[frame_cnt]:
+                    ele_rad = tmp_val[3]*np.pi/180.
+                    azi_rad = tmp_val[2]*np.pi/180.
+                    # 
+                    tmp_label = np.cos(ele_rad)
+                    x = np.cos(azi_rad) * tmp_label
+                    y = np.sin(azi_rad) * tmp_label
+                    z = np.sin(ele_rad)
+                    out_dict[frame_cnt].append(tmp_val[0:2] + [x, y, z] + tmp_val[4:])
+        return out_dict
+    
     def convert_output_format_cartesian_to_polar(self, in_dict):
         out_dict = {}
         for frame_cnt in in_dict.keys():
