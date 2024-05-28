@@ -20,6 +20,7 @@ import cv2
 from spafe.fbanks import mel_fbanks, gammatone_fbanks, bark_fbanks
 import time 
 import torch
+import csv
 
 
 def nCr(n, r):
@@ -36,10 +37,11 @@ class FeatureClass:
         # Input directories
         self._feat_label_dir = params['feat_label_dir']
         self._dataset_dir = params['dataset_dir'] 
-        self._dataset_combination = '{}_{}'.format(params['dataset'], 'eval' if is_eval else 'dev')  # foa_dev 
-        self._aud_dir = os.path.join(self._dataset_dir, self._dataset_combination) #'../Dataset/STARSS2023\\foa_dev'
+        self._dataset = params['dataset']
+        self._dataset_combination = '{}_{}'.format(params['data_type'], 'eval' if is_eval else 'dev')  # foa_dev 
+        self._aud_dir = os.path.join(self._dataset_dir, self._dataset_combination) if self._dataset in ['STARSS2023'] else self._dataset_dir #'../Dataset/STARSS2023\\foa_dev'
 
-        self._desc_dir = None if is_eval else os.path.join(self._dataset_dir, 'metadata_dev') # '../Dataset/STARSS2023\\metadata_dev'
+        self._desc_dir = None if is_eval else (os.path.join(self._dataset_dir, 'metadata_dev') if self._dataset in ['STARSS2023'] else self._dataset_dir) # '../Dataset/STARSS2023\\metadata_dev'
 
         self._vid_dir = os.path.join(self._dataset_dir, 'video_{}'.format('eval' if is_eval else 'dev')) # 
         # Output directories
@@ -54,18 +56,21 @@ class FeatureClass:
         # Local parameters
         self._is_eval = is_eval
 
-        self._fs = params['fs']  # 24000
+        self._fs = params['fs']  # 24000, 44100? 
         self._hop_len_s = params['hop_len_s']
         self._hop_len = int(self._fs * self._hop_len_s) # 480
 
+        self._label_hop_len_s_STARSS = params['label_hop_len_s_STARSS']
         self._label_hop_len_s = params['label_hop_len_s']  # 0.1 second
         self._label_hop_len = int(self._fs * self._label_hop_len_s) # 2400  sample
         self._label_frame_res = self._fs / float(self._label_hop_len) # 10.0 
+        
 
         self._win_len = 2 * self._hop_len # 960
         self._nfft = self._next_greater_power_of_2(self._win_len) # 1024 
+        self._feature_sequence_length = params['feature_sequence_length']  # 
 
-        self._dataset = params['dataset'] # foa
+        self._data_type = params['data_type'] # foa
         self._eps = 1e-8
         self._nb_channels = 4
 
@@ -75,7 +80,7 @@ class FeatureClass:
         self._filter_type = params['filter']  # "mel", "gammatone", "bark"
 
         self._use_salsalite = params['use_salsalite'] # bool
-        if self._use_salsalite and self._dataset=='mic': #  _use_salsalite is valid only when the dataset config is mic
+        if self._use_salsalite and self._data_type=='mic': #  _use_salsalite is valid only when the dataset config is mic
             # Initialize the spatial feature constants
             self._lower_bin = np.int(np.floor(params['fmin_doa_salsalite'] * self._nfft / np.float(self._fs)))
             self._lower_bin = np.max((1, self._lower_bin))
@@ -108,7 +113,8 @@ class FeatureClass:
                 raise ValueError("Unsupported filter type: {}".format(self._filter_type))
     
         # Sound event classes dictionary
-        self._nb_unique_classes = params['unique_classes'] #13 
+        self._nb_unique_classes = params['unique_classes'] #13
+        self._classes_mapping = params['classes_mapping']
 
         self._filewise_frames = {}  # 文件名： 特征时间帧，以及label时间帧
 
@@ -121,20 +127,40 @@ class FeatureClass:
         print('Computing frame stats:')
         print('\t\taud_dir {}\n\t\tdesc_dir {}\n\t\tfeat_dir {}'.format(
             self._aud_dir, self._desc_dir, self._feat_dir))
-        for sub_folder in os.listdir(self._aud_dir):
-            loc_aud_folder = os.path.join(self._aud_dir, sub_folder)   #'../Dataset/STARSS2023\\foa_dev\\dev-test-sony'
-            for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)): 
-                wav_filename = '{}.wav'.format(file_name.split('.')[0])
-                with contextlib.closing(wave.open(os.path.join(loc_aud_folder, wav_filename), 'r')) as f:
-                    audio_len = f.getnframes()
-                nb_feat_frames = int(audio_len / float(self._hop_len))   # 1456800 / 480
-                nb_label_frames = int(audio_len / float(self._label_hop_len))   #  1456800 / 2400 
-                self._filewise_frames[file_name.split('.')[0]] = [nb_feat_frames, nb_label_frames] # {'fold4_room23_mix001': [3035, 607]}
+        
+        if self._dataset in ['STARSS2023']:
+            for sub_folder in os.listdir(self._aud_dir):
+                loc_aud_folder = os.path.join(self._aud_dir, sub_folder)   #'../Dataset/STARSS2023\\foa_dev\\dev-test-sony'
+                for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)): 
+                    wav_filename = '{}.wav'.format(file_name.split('.')[0])
+                    with contextlib.closing(wave.open(os.path.join(loc_aud_folder, wav_filename), 'r')) as f:
+                        audio_len = f.getnframes()
+                    nb_feat_frames = int(audio_len / float(self._hop_len))   # 1456800 / 480
+                    nb_label_frames = int(audio_len / float(self._label_hop_len))   #  1456800 / 2400 
+                    self._filewise_frames[file_name.split('.')[0]] = [nb_feat_frames, nb_label_frames] # {'fold4_room23_mix001': [3035, 607]}
+        
+        elif self._dataset in ['ANSYN', 'ASIRD', 'L3DAS21']:
+            for sub_folder in os.listdir(self._aud_dir):
+                if 'desc' not in sub_folder:
+                    continue 
+                # breakpoint()
+                ov_split =  sub_folder.split('desc')[-1]
+                loc_aud_folder = os.path.join(self._aud_dir, 'wav'+ ov_split+'_30db')   #'../Dataset/ANSYN\\wav_ov1_split1_30db'
+
+                for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)): 
+                    wav_filename = '{}.wav'.format(file_name.split('.')[0])
+                    with contextlib.closing(wave.open(os.path.join(loc_aud_folder, wav_filename), 'r')) as f:
+                        audio_len = f.getnframes()
+                    nb_feat_frames = int(audio_len / float(self._hop_len))   # 1456800 / 480
+                    nb_label_frames = int(audio_len / float(self._label_hop_len))   #  1456800 / 2400 
+                    file_name_key = file_name.split('.')[0] + ov_split    # 'test_0_desc_30_100_ov1_split1'
+                    self._filewise_frames[file_name_key] = [nb_feat_frames, nb_label_frames] # {'fold4_room23_mix001': [3035, 607]}
+        
         return
 
     def _load_audio(self, audio_path): # load wav file from audio_path
         fs, audio = wav.read(audio_path)
-        audio = audio[:, :self._nb_channels] / 32768.0 + self._eps
+        audio = audio[:, :self._nb_channels] / 32768.0 + self._eps  # dtype int16 -> double64
         return audio, fs
 
     # INPUT FEATURES
@@ -218,6 +244,7 @@ class FeatureClass:
         self._filewise_frames[os.path.basename(audio_filename).split('.')[0]] = [nb_feat_frames, nb_label_frames]
 
         audio_spec = self._spectrogram(audio_in, nb_feat_frames)  # (2235, 513, 4) time, frequency, channel
+        
         return audio_spec 
     # OUTPUT LABELs
     def get_polar_labels_for_file(self, _desc_file, _nb_label_frames):
@@ -408,19 +435,19 @@ class FeatureClass:
             mel_spect = self._get_mel_spectrogram(spect) # get mel from spectrogram, (2235, 256)
 
         feat = None
-        if self._dataset == 'foa':
+        if self._data_type == 'foa':
             # extract intensity vectors from spect 
             foa_iv = self._get_foa_intensity_vectors(spect) # 2235, 192
             feat = np.concatenate((mel_spect, foa_iv), axis=-1) # 2235, 448 = 2235, 64*7 = T, 64, 7
-        elif self._dataset == 'mic':
+        elif self._data_type == 'mic':
             if self._use_salsalite:
                 feat = self._get_salsalite(spect)
-            else:
+            else: 
                 # extract gcc
                 gcc = self._get_gcc(spect)
                 feat = np.concatenate((mel_spect, gcc), axis=-1)
         else:
-            print('ERROR: Unknown dataset format {}'.format(self._dataset))
+            print('ERROR: Unknown dataset format {}'.format(self._data_type))
             exit()
 
         if feat is not None:
@@ -439,18 +466,37 @@ class FeatureClass:
         print('\t\taud_dir {}\n\t\tdesc_dir {}\n\t\tfeat_dir {}'.format(
             self._aud_dir, self._desc_dir, self._feat_dir))  # ('../Dataset/STARSS2023\\foa_dev', '../Dataset/STARSS2023\\metadata_dev', '../Dataset/STARSS2023/feat_label_hnet/foa_dev_mel')
         arg_list = [] 
-        for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
-            loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
-            for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
-                wav_filename = '{}.wav'.format(file_name.split('.')[0])
-                wav_path = os.path.join(loc_aud_folder, wav_filename) # ../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix001.wav
-                feat_path = os.path.join(self._feat_dir, '{}.npy'.format(wav_filename.split('.')[0]))  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix001.npy
-                # process only when the file is not exsit
-                if not os.path.exists(feat_path):
-                    self.extract_file_feature((file_cnt, wav_path, feat_path)) # 提取单个wav文件的特征
-                else:
-                    print(f"Skipping {feat_path} as features are already extracted.")
-                arg_list.append((file_cnt, wav_path, feat_path)) 
+        if self._dataset in ['STARSS2023']:
+            for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
+                loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
+                for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
+                    wav_filename = '{}.wav'.format(file_name.split('.')[0])
+                    wav_path = os.path.join(loc_aud_folder, wav_filename) # ../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix001.wav
+                    feat_path = os.path.join(self._feat_dir, '{}.npy'.format(wav_filename.split('.')[0]))  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix001.npy
+                    # process only when the file is not exsit
+                    if not os.path.exists(feat_path):
+                        self.extract_file_feature((file_cnt, wav_path, feat_path)) # 提取单个wav文件的特征
+                    else:
+                        print(f"Skipping {feat_path} as features are already extracted.")
+                    arg_list.append((file_cnt, wav_path, feat_path)) 
+
+        elif self._dataset in ['ANSYN', 'ASIRD', 'L3DAS21']:
+            for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
+                if 'wav' not in sub_folder: 
+                    continue 
+                ov_split = sub_folder.split('_')[1] + '_' + sub_folder.split('_')[2]
+                loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
+                for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
+                    wav_filename = '{}.wav'.format(file_name.split('.')[0])
+                    wav_path = os.path.join(loc_aud_folder, wav_filename) # ../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix001.wav
+                    feat_path = os.path.join(self._feat_dir, '{}_{}.npy'.format(wav_filename.split('.')[0], ov_split))  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix001.npy
+                    # process only when the file is not exsit
+                    if not os.path.exists(feat_path):
+                        self.extract_file_feature((file_cnt, wav_path, feat_path)) # 提取单个wav文件的特征
+                    else:
+                        print(f"Skipping {feat_path} as features are already extracted.")
+                    arg_list.append((file_cnt, wav_path, feat_path)) 
+
 
         # with Pool() as pool:
         #     result = pool.map(self.extract_file_feature, iterable=arg_list)
@@ -504,31 +550,86 @@ class FeatureClass:
     # ------------------------------- EXTRACT LABELS AND PREPROCESS IT -------------------------------
     def extract_all_labels(self): 
         self.get_frame_stats() # 
-        self._label_dir = self.get_label_dir()  # feat_label_hnet\foa_dev_multi_accdoa_label
+        self._label_dir = self.get_label_dir()  # feat_label_hnet\foa_dev_multi_accdoa_0.1_label
 
         print('Extracting labels:')
         print('\t\taud_dir {}\n\t\tdesc_dir {}\n\t\tlabel_dir {}'.format(
             self._aud_dir, self._desc_dir, self._label_dir))
         create_folder(self._label_dir)
-        for sub_folder in os.listdir(self._desc_dir):
-            loc_desc_folder = os.path.join(self._desc_dir, sub_folder)
-            for file_cnt, file_name in enumerate(os.listdir(loc_desc_folder)):   
-                # for each file(like fold4_room23_mix001.csv), process it into label hop frames according to the self._filewise_frames
-                wav_filename = '{}.wav'.format(file_name.split('.')[0])
-                nb_label_frames = self._filewise_frames[file_name.split('.')[0]][1]  # 607 
-                desc_file_polar = self.load_output_format_file(os.path.join(loc_desc_folder, file_name))  
-                    #'../Dataset/STARSS2023\\metadata_dev\\dev-test-sony\\fold4_room23_mix001.csv'
-                desc_file = self.convert_output_format_polar_to_cartesian(desc_file_polar)    # len(desc_file)
-                if self._output_format == 'multi_accdoa': 
-                    label_mat = self.get_adpit_labels_for_file(desc_file, nb_label_frames)
-                elif self._output_format == 'single_accdoa':
-                    label_mat = self.get_cartesian_labels_for_file(desc_file, nb_label_frames)  # (607, 65)
-                elif self._output_format == 'polar':
-                    label_mat = self.get_polar_labels_for_file(desc_file_polar, nb_label_frames) # 
-                print('{}: {}, {}'.format(file_cnt, file_name, label_mat.shape))
-                np.save(os.path.join(self._label_dir, '{}.npy'.format(wav_filename.split('.')[0])), label_mat)
+        if self._dataset in ['STARSS2023']:
+            for sub_folder in os.listdir(self._desc_dir):
+                loc_desc_folder = os.path.join(self._desc_dir, sub_folder)
+                for file_cnt, file_name in enumerate(os.listdir(loc_desc_folder)):   
+                    # for each file(like fold4_room23_mix001.csv), process it into label hop frames according to the self._filewise_frames
+                    wav_filename = '{}.wav'.format(file_name.split('.')[0])
+
+                    nb_label_frames = self._filewise_frames[file_name.split('.')[0]][1]  # 607 
+                    desc_file_polar = self.load_output_format_file(os.path.join(loc_desc_folder, file_name))  
+                        #'../Dataset/STARSS2023\\metadata_dev\\dev-test-sony\\fold4_room23_mix001.csv'
+
+                    desc_file = self.convert_output_format_polar_to_cartesian(desc_file_polar)    # len(desc_file)
+                    if self._output_format == 'multi_accdoa': 
+                        label_mat = self.get_adpit_labels_for_file(desc_file, nb_label_frames)
+                    elif self._output_format == 'single_accdoa':
+                        label_mat = self.get_cartesian_labels_for_file(desc_file, nb_label_frames)  # (607, 65)
+                    elif self._output_format == 'polar':
+                        label_mat = self.get_polar_labels_for_file(desc_file_polar, nb_label_frames) # 
+                    print('{}: {}, {}'.format(file_cnt, file_name, label_mat.shape))
+                   
+                    np.save(os.path.join(self._label_dir, '{}.npy'.format(wav_filename.split('.')[0])), label_mat)
+
+        elif self._dataset in ['ANSYN', 'ASIRD', 'L3DAS21']:
+            for sub_folder in os.listdir(self._dataset_dir):
+                if 'desc' not in sub_folder: 
+                    continue 
+                # modified_subfolder = os.path.join(self._label_dir, sub_folder)
+                # create_folder(modified_subfolder)
+                # subfolder 'desc_ov1_split2'
+                ov_split = sub_folder.split('desc')[-1]
+                relative_wave_folder = 'wav'+ov_split +'_30db'
+                loc_desc_folder = os.path.join(self._desc_dir, sub_folder)   # '../Dataset/ANSYN\\desc_ov1_split1' 
+                for file_cnt, file_name in enumerate(os.listdir(loc_desc_folder)): 
+
+                    wav_filename = '{}.wav'.format(file_name.split('.')[0])
+                    file_name_key = file_name.split('.')[0] + ov_split 
+                    nb_label_frames = self._filewise_frames[file_name_key][1] 
+                    desc_file_polar = self.load_output_format_file(os.path.join(loc_desc_folder, file_name))
+                    desc_file = self.convert_output_format_polar_to_cartesian(desc_file_polar)    # len(desc_file)
+                    if self._output_format == 'multi_accdoa': 
+                        label_mat = self.get_adpit_labels_for_file(desc_file, nb_label_frames)
+                    elif self._output_format == 'single_accdoa':
+                        label_mat = self.get_cartesian_labels_for_file(desc_file, nb_label_frames)  # (607, 65)
+                    elif self._output_format == 'polar':
+                        label_mat = self.get_polar_labels_for_file(desc_file_polar, nb_label_frames) # 
+                    print('{}: {}, {}'.format(file_cnt, file_name, label_mat.shape))  
+                    file_name = wav_filename.split('.')[0] + ov_split 
+                    np.save(os.path.join(self._label_dir, '{}.npy'.format(file_name)), label_mat)
+
+
+        #TODO?
+        
+    # def preprocess_labels(self):
+    #     '''
+    #     Do some preprocessing procedure such as transfering time span format used by ANSYN,L3DAS21 to frame format uesd by STARSS2023.
+        
+    #     '''
+    #     self._label_dir = self.get_label_dir()
+    #     create_folder(self._label_dir)
+    #     if self._dataset in ['ANSYN', 'ASIRD', 'L3DAS21']:
+    #         for sub_folder in os.listdir(self._dataset_dir):
+    #             if 'desc' not in sub_folder: 
+    #                 continue 
+    #             modified_subfolder = os.path.join(self._label_dir, sub_folder)
+    #             create_folder(modified_subfolder)
+    #             for file_cnt, file_name in enumerate(os.listdir(sub_folder)):  
+    #                 pass 
+
+
+
+
 
     # ------------------------------- EXTRACT VISUAL FEATURES AND PREPROCESS IT -------------------------------
+
     @staticmethod 
     def _read_vid_frames(vid_filename):
         cap = cv2.VideoCapture(vid_filename)
@@ -589,7 +690,7 @@ class FeatureClass:
                     print(f"Skipping {mp4_filename} as features are already extracted.")
 
     # -------------------------------  DCASE OUTPUT  FORMAT FUNCTIONS -------------------------------
-    def load_output_format_file(self, _output_format_file, cm2m=False):  # TODO: Reconsider cm2m conversion
+    def load_output_format_file_from_original_file(self, _output_format_file, cm2m=False):  # TODO: Reconsider cm2m conversion
         """
         Loads DCASE output format csv file and returns it in dictionary format
         For instance, the output format of DCASE 2024 is : 
@@ -603,25 +704,109 @@ class FeatureClass:
         _fid = open(_output_format_file, 'r')
         # next(_fid)
         _words = []     # For empty files
+        
+        if self._dataset in ['STARSS2023']:
+            if self._label_hop_len_s == self._label_hop_len_s_STARSS: # Donnnot to change the resolution 
+                for _line in _fid:
+                    _words = _line.strip().split(',')   #'1,8,0,14,0,392\n'
+                    _frame_ind = int(_words[0])    # 1
+                    if _frame_ind not in _output_dict: 
+                        _output_dict[_frame_ind] = []
+
+                    if len(_words) == 4:  # frame, class idx,  polar coordinates(2) # no distance data, for example in eval pred
+                        _output_dict[_frame_ind].append([int(_words[1]), 0, float(_words[2]), float(_words[3])])
+                    if len(_words) == 5:  # frame, class idx, source_id, polar coordinates(2) # no distance data, for example in synthetic data fold 1 and 2
+                        _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4])])
+                    
+                    # In DCASE 2024, len _words == 6 
+                    class_idx = self._classes_mapping[int(_words[1])]
+                    if len(_words) == 6: # frame, class idx, source_id, polar coordinates(2), distance
+                        _output_dict[_frame_ind].append([class_idx, int(_words[2]), float(_words[3]), float(_words[4]), float(_words[5])/100 if cm2m else float(_words[5])])
+                    elif len(_words) == 7: # frame, class idx, source_id, cartesian coordinates(3), distance
+                        _output_dict[_frame_ind].append([class_idx, int(_words[2]), float(_words[3]), float(_words[4]), float(_words[5]), float(_words[6])/100 if cm2m else float(_words[6])])
+            else: # need to change the resolution 
+                frame_expansion_factor = int(self._label_hop_len_s_STARSS// self._label_hop_len_s)
+                for _line in _fid:
+                    _words = _line.strip().split(',')
+                    original_frame_ind = int(_words[0])
+                    # Calculate how many new frames correspond to one original frame
+                    class_idx = int(_words[1])
+                    new_start_frame = original_frame_ind * frame_expansion_factor
+                    
+                    for new_frame_ind in range(new_start_frame , new_start_frame + frame_expansion_factor):
+                        if new_frame_ind not in _output_dict:
+                            _output_dict[new_frame_ind] = []
+                        
+                        if len(_words) >= 6:  # Handles both 6 and 7 column scenarios
+                            # Convert distance if needed and adjust columns as necessary
+                            distance = float(_words[5])/100 if cm2m else float(_words[5])
+                            event_data = [class_idx, int(_words[2]), float(_words[3]), float(_words[4]), distance]
+                            if len(_words) == 7:
+                                event_data.append(float(_words[6])/100 if cm2m else float(_words[6]))
+                            _output_dict[new_frame_ind].append(event_data)
+
+        elif self._dataset in ['ANSYN', 'ASIRD', 'L3DAS21']:
+            next(_fid)
+            reader = csv.reader(_fid)
+            for _words in reader:
+                start_time = float(_words[1])
+                end_time = float(_words[2])
+                ele = float(_words[3])
+                azi = float(_words[4])
+                dis = float(_words[5]) * 100  # convert m to cm if not already cm
+                
+                start_frame = int(start_time // self._label_hop_len_s)
+                end_frame = int(end_time // self._label_hop_len_s)
+                
+                for frame_idx in range(start_frame, end_frame + 1):
+                    if frame_idx not in _output_dict:
+                        _output_dict[frame_idx] = []
+                    
+                    # Here you would call your class_idx and source_id functions, which are not specified
+                    class_idx = self.get_class_index(_words[0])  # Placeholder function
+                    source_id = 0   # Assume all the source id are 0
+
+                    _output_dict[frame_idx].append([class_idx, source_id, azi, ele, dis])
+        
+        _fid.close()
+        # if len(_words) == 7:
+        #     _output_dict = self.convert_output_format_cartesian_to_polar(_output_dict) # WHY ?TODO
+    
+        return _output_dict   # len(_output_dict) == 606 == label time resolution
+
+    def load_output_format_file_from_prediction_file(self, _output_format_file, cm2m=False):  # TODO: Reconsider cm2m conversion
+        """
+        Loads DCASE output format csv file and returns it in dictionary format
+        For instance, the output format of DCASE 2024 is : 
+            [frame number (int)], [active class index (int)], [source number index (int)], [azimuth (int)], [elevation (int)], [distance (int)]
+        After processing according to frame hop length, the ouput is:
+
+        :param _output_format_file: DCASE output format CSV
+        :return: _output_dict: dictionary
+        """
+        _output_dict = {}
+        _fid = open(_output_format_file, 'r')
+        # next(_fid)
+        _words = []     # For empty files
         for _line in _fid:
-            _words = _line.strip().split(',')   #'1,8,0,14,0,392\n'
-            _frame_ind = int(_words[0])    # 1
-            if _frame_ind not in _output_dict: 
+            _words = _line.strip().split(',')
+            _frame_ind = int(_words[0])
+            if _frame_ind not in _output_dict:
                 _output_dict[_frame_ind] = []
             if len(_words) == 4:  # frame, class idx,  polar coordinates(2) # no distance data, for example in eval pred
                 _output_dict[_frame_ind].append([int(_words[1]), 0, float(_words[2]), float(_words[3])])
             if len(_words) == 5:  # frame, class idx, source_id, polar coordinates(2) # no distance data, for example in synthetic data fold 1 and 2
                 _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4])])
-            
-            # In DCASE 2024, len _words == 6 
             if len(_words) == 6: # frame, class idx, source_id, polar coordinates(2), distance
                 _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4]), float(_words[5])/100 if cm2m else float(_words[5])])
             elif len(_words) == 7: # frame, class idx, source_id, cartesian coordinates(3), distance
                 _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4]), float(_words[5]), float(_words[6])/100 if cm2m else float(_words[6])])
         _fid.close()
-        if len(_words) == 7:
-            _output_dict = self.convert_output_format_cartesian_to_polar(_output_dict) # WHY ?TODO
+        # if len(_words) == 7:
+        #     _output_dict = self.convert_output_format_cartesian_to_polar(_output_dict)
+    
         return _output_dict   # len(_output_dict) == 606 == label time resolution
+
 
     def write_output_format_file(self, _output_format_file, _output_format_dict, _output_format):
         """
@@ -713,7 +898,7 @@ class FeatureClass:
                     output_dict[frame_idx][class_idx] = {}
                 # assert track_idx not in output_dict[frame_idx][class_idx]  # I don't know why sometimes this happens... they seem to be repeated DOAs # TODO: Is this still happening?
                 output_dict[frame_idx][class_idx][track_idx] = [az, el] + dist
-        #1: {8: {0: [0.9702957262759965, 0.24192189559966773, 0.0, 3.92]}, 5: {0: [0.7595475059751814, -0.5723600993730742, -0.3090169943749474, 2.05]}}
+        # 1: {8: {0: [0.9702957262759965, 0.24192189559966773, 0.0, 3.92]}, 5: {0: [0.7595475059751814, -0.5723600993730742, -0.3090169943749474, 2.05]}}
         # frame: {class: {track: [x, y, z, dist]}}
         return output_dict
 
@@ -816,20 +1001,29 @@ class FeatureClass:
                     r = np.sqrt(x**2 + y**2 + z**2)
                     out_dict[frame_cnt].append(tmp_val[0:2] + [azimuth, elevation] + tmp_val[5:])
         return out_dict
+    # ------------------------------- Class mapping functions -------------------------------
+    def get_class_index(self, original_sound_class):
+        '''
+
+        '''
+        original_sound_class = ''.join(filter(str.isalpha, original_sound_class.split('.')[0]))  # clearthroat094.wav -> clearthroat
+        return self._classes_mapping[original_sound_class]
+
+
 
     # ------------------------------- Misc public functions -------------------------------
 
     def get_normalized_feat_dir(self):
         return os.path.join(
             self._feat_label_dir,
-            '{}_{}_norm'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type)
+            '{}_{}_{}_{}_norm'.format('{}_salsa'.format(self._dataset_combination) if (self._data_type=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type, str(self._feature_sequence_length)+'len',str(self._nb_mel_bins)+'bins')
         )
 
     def get_unnormalized_feat_dir(self):
         
         return os.path.join(
             self._feat_label_dir,
-            '{}_{}'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type)
+            '{}_{}_{}_{}'.format('{}_salsa'.format(self._dataset_combination) if (self._data_type=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type, str(self._feature_sequence_length)+'len',str(self._nb_mel_bins)+'bins')
         )
 
     def get_label_dir(self):
@@ -838,13 +1032,22 @@ class FeatureClass:
         else:
             return os.path.join(
                 self._feat_label_dir,
-                f'{self._dataset_combination}_{self._output_format}_label'               
+                f'{self._dataset_combination}_{self._output_format}_{self._label_hop_len_s*1000}ms_label'               
+        )
+
+    def get_modified_label_dir(self):
+        '''
+        Get the name of the folder contains all the modified output format csv files.
+        '''
+        return os.path.join(
+            self._feat_label_dir,
+            'modified_label'
         )
 
     def get_normalized_wts_file(self):
         return os.path.join(
-            self.get_normalized_feat_dir(self), 
-            '{}_{}wts'.format(self._dataset, self._filter_type)
+            self.get_normalized_feat_dir(), 
+            '{}_{}wts'.format(self._data_type, self._filter_type)
         )
 
     def get_vid_feat_dir(self):

@@ -321,6 +321,7 @@ class SELDMetrics(object):
 
             non_zero_F_indices = np.where(np.round(F,2) != 0)
 
+            # breakpoint()
             F, AngE, LR, SELD_scr, IDSR = F.mean(), np.nanmean(AngE[non_zero_F_indices]), LR[non_zero_F_indices].mean(), SELD_scr[non_zero_F_indices].mean(), IDSR.mean()
             DistE, RelDistE = np.nanmean(DistE[non_zero_F_indices]), np.nanmean(RelDistE[non_zero_F_indices])
         return (ER, F, AngE, DistE, RelDistE, LR, SELD_scr, classwise_results) if self.eval_dist else (

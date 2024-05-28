@@ -64,10 +64,11 @@ class ComputeSELDResults(object):
 
         # collect reference files, reference labels are the ground truth 
         self._ref_labels = {}
+        # breakpoint()
         for split in os.listdir(self._desc_dir):
             for ref_file in os.listdir(os.path.join(self._desc_dir, split)):
                 # Load reference description file
-                gt_dict = self._feat_cls.load_output_format_file(os.path.join(self._desc_dir, split, ref_file), cm2m=True)  # TODO: Reconsider the cm2m conversion
+                gt_dict = self._feat_cls.load_output_format_file_from_original_file(os.path.join(self._desc_dir, split, ref_file), cm2m=True)  # TODO: Reconsider the cm2m conversion
                 gt_dict = self._feat_cls.convert_output_format_polar_to_cartesian(gt_dict)  # (x, y, z)unit  distance 
                 nb_ref_frames = max(list(gt_dict.keys()))
                 # segment_labels?
@@ -130,8 +131,8 @@ class ComputeSELDResults(object):
             # Load predicted output format file
             
             'results_audio\\4888ae034c4e7bdc3c8e8b70b9d9d222_SeldModel\\21_1_dev_split0_polar_foa_val'
-            pred_dict = self._feat_cls.load_output_format_file(os.path.join(pred_files_path, pred_file))  # TODO: why format is transfer from car to polar then polar to car again? 
-            pred_dict = self._feat_cls.convert_output_format_polar_to_cartesian(pred_dict) # ???? 
+            pred_dict = self._feat_cls.load_output_format_file_from_prediction_file(os.path.join(pred_files_path, pred_file))  # TODO: why format is transfer from car to polar then polar to car again? 
+            # pred_dict = self._feat_cls.convert_output_format_polar_to_cartesian(pred_dict) # ???? 
             if self.segment_level:
                 pred_labels = self._feat_cls.segment_labels(pred_dict, self._ref_labels[pred_file][1])
                 # pred_labels[segment-index][class-index] := list(frame-cnt-within-segment, azimuth, elevation)

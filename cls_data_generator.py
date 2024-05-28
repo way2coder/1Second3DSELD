@@ -93,9 +93,10 @@ class DataGenerator(object):
 
     def _get_filenames_list_and_feat_label_sizes(self):
         print('Computing some stats about the dataset')   
+
         max_frames, total_frames, temp_feat = -1, 0, []   
         for filename in os.listdir(self._feat_dir):  #'../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm'
-            if int(filename[4]) in self._splits:  # check which split the file belongs to fold3/ fold4
+            if filename[4].isdigit() and int(filename[4]) in self._splits:  # check which split the file belongs to fold3/ fold4
                 if self._modality == 'audio' or (hasattr(self, '_vid_feat_dir') and os.path.exists(os.path.join(self._vid_feat_dir, filename))):   # some audio files do not have corresponding videos. Ignore them.
                     self._filenames_list.append(filename)
                     temp_feat = np.load(os.path.join(self._feat_dir, filename))  # load npy from ''../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm\\fold3_room12_mix001.npy'
@@ -174,7 +175,7 @@ class DataGenerator(object):
 
                     # If self._per_file is True, this returns the sequences belonging to a single audio recording
                     if self._per_file:
-                        extra_frames = self._feature_batch_seq_len - temp_feat.shape[0]
+                        extra_frames =  self._feature_batch_seq_len - temp_feat.shape[0]
                         extra_feat = np.ones((extra_frames, temp_feat.shape[1])) * 1e-6
 
                         for row_cnt, row in enumerate(extra_feat):

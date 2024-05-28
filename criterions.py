@@ -28,7 +28,6 @@ class MSELoss_ADPIT(object):
         Return:
             loss: scalar
         """
-        breakpoint()
         target_A0 = target[:, :, 0, 0:1, :] * target[:, :, 0, 1:, :]  # A0, no ov from the same class, [batch_size, frames, num_axis(act)=1, num_class=12] * [batch_size, frames, num_axis(XYZD)=4, num_class=12]
         target_B0 = target[:, :, 1, 0:1, :] * target[:, :, 1, 1:, :]  # B0, ov with 2 sources from the same class
         target_B1 = target[:, :, 2, 0:1, :] * target[:, :, 2, 1:, :]  # B1

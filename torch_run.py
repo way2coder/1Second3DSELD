@@ -27,7 +27,7 @@ from cls_compute_seld_results import ComputeSELDResults, reshape_3Dto2D
 from SELD_evaluation_metrics import distance_between_cartesian_coordinates
 from models import models
 from criterions import MSELoss_ADPIT, SELLoss
-from cls_dataset import *
+from cls_dataset import * 
 def init_logging_file(unique_hash_str):
     '''initiate the logging features, and the results will all dumped into results_audio/{unique_hash_str}'''
     os.makedirs(unique_hash_str, exist_ok=True)
@@ -170,7 +170,6 @@ def validation_epoch(data_generator, model, criterion, dcase_output_folder, para
                         flag_1sim2 = determine_similar_location(sed_pred1[frame_cnt][class_cnt], sed_pred2[frame_cnt][class_cnt], doa_pred1[frame_cnt], doa_pred2[frame_cnt], class_cnt, params['thresh_unify'], params['unique_classes'])
                         flag_2sim0 = determine_similar_location(sed_pred2[frame_cnt][class_cnt], sed_pred0[frame_cnt][class_cnt], doa_pred2[frame_cnt], doa_pred0[frame_cnt], class_cnt, params['thresh_unify'], params['unique_classes'])
                         # unify or not unify according to flag
-                        # breakpoint
                         if flag_0sim1 + flag_1sim2 + flag_2sim0 == 0:  # each track is not similar with the other track 
                             if sed_pred0[frame_cnt][class_cnt]>0.5: 
                                 if frame_cnt not in output_dict:
@@ -210,7 +209,6 @@ def validation_epoch(data_generator, model, criterion, dcase_output_folder, para
                                 output_dict[frame_cnt] = []
                             doa_pred_fc = (doa_pred0[frame_cnt] + doa_pred1[frame_cnt] + doa_pred2[frame_cnt]) / 3
                             dist_pred_fc = (dist_pred0[frame_cnt] + dist_pred1[frame_cnt] + dist_pred2[frame_cnt]) / 3
-                    
                             output_dict[frame_cnt].append([class_cnt, doa_pred_fc[class_cnt], doa_pred_fc[class_cnt+params['unique_classes']], doa_pred_fc[class_cnt+2*params['unique_classes']], dist_pred_fc[class_cnt]])
             elif params['output_format'] == 'single_accdoa':
                 for frame_cnt in range(sed_pred.shape[0]): 
@@ -232,6 +230,7 @@ def validation_epoch(data_generator, model, criterion, dcase_output_folder, para
             # start_time = time.time()
             data_generator.write_output_format_file(output_file, output_dict, params['output_format'])
 
+
             test_loss += loss.item()
             nb_test_batches += 1
             if params['quick_test'] and nb_test_batches == 4:
@@ -241,16 +240,17 @@ def validation_epoch(data_generator, model, criterion, dcase_output_folder, para
     return test_loss
 
 
-def train_epoch(data_generator, optimizer, model, criterion, params, device):
+def train_epoch(train_loader, optimizer, model, criterion, params, device):
     nb_train_batches, train_loss = 0, 0.
     model.train()  # set to train model 
-    for values in data_generator.generate(): # generate? 
+    for batch_idx, values in enumerate(train_loader):
         # load one batch of data
-        if len(values) == 2:
+        if len(values) == 2: 
             # breakpoint()
             data, target = values   # data always be (batchsize, 7, 250, 64)  target: single_accdoa(batchsize, 50, 52) multi_accdoa (batchsize, 50, 6, 5, 13)
-            data, target = torch.tensor(data).to(device).float(), torch.tensor(target).to(device).float()
+            data, target = torch.tensor(data).clone().detach().to(device).float(), torch.tensor(target).clone().detach().to(device).float()
             optimizer.zero_grad()
+            breakpoint()
             output = model(data)  # TODO:model should be modify 
         elif len(values) == 3:
             data, vid_feat, target = values
@@ -419,11 +419,13 @@ def main(argv):
 
         # Load train and validation data,
         logging.info('Loading training dataset:')
-        # train_dataset = YourCustomDataset(params, train_splits[split_cnt])
-        # train_loader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=True)
-        data_gen_train = cls_data_generator.DataGenerator(
-            params=params, split=train_splits[split_cnt]
-        ) # init a class that generator the train data, split = [1, 2, 3]
+        
+        train_dataset = SELDDataset(params)
+        train_loader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=True) 
+
+        # data_gen_train = cls_data_generator.DataGenerator(
+        #     params=params, split=train_splits[split_cnt]
+        # ) # init a class that generator the train data, split = [1, 2, 3]
 
         logging.info('Loading validation dataset:')
         data_gen_val = cls_data_generator.DataGenerator(
@@ -433,11 +435,10 @@ def main(argv):
         # Collect i/o data size and load model configuration, load model weights to model
         # model we used are wrapped in models/ folder, you can modify it in parameter.py  
         if params['modality'] == 'audio_visual':
-            data_in, vid_data_in, data_out = data_gen_train.get_data_sizes()
+            data_in, vid_data_in, data_out = data_gen_val.get_data_sizes()
             model = models[params['model']](data_in, data_out, params, vid_data_in).to(device)
         else:
-            breakpoint()
-            data_in, data_out = data_gen_train.get_data_sizes() 
+            data_in, data_out = data_gen_val.get_data_sizes() 
             model = models[params['model']](data_in, data_out, params).to(device)
         
         if params['finetune_mode']:
@@ -485,7 +486,7 @@ def main(argv):
             # TRAINING
             # ---------------------------------------------------------------------
             start_time = time.time()
-            train_loss = train_epoch(data_gen_train, optimizer, model, criterion, params, device) # only the train_loss is needed in training procedure
+            train_loss = train_epoch(train_loader, optimizer, model, criterion, params, device) # only the train_loss is needed in training procedure
             train_time = time.time() - start_time
             # ---------------------------------------------------------------------
             # VALIDATION

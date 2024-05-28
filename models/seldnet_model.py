@@ -67,6 +67,7 @@ class SeldModel(torch.nn.Module):
     def forward(self, x, vid_feat=None):
         """input: (batch_size, mic_channels, time_steps, mel_bins)"""
         # x.shape 128, 7, 250, 64 vid_feat.shape 
+        # breakpoint()
         for conv_cnt in range(len(self.conv_block_list)):
             x = self.conv_block_list[conv_cnt](x)
         # x.shape batchsize, 64, 50, 2
@@ -92,7 +93,7 @@ class SeldModel(torch.nn.Module):
 
         if self.output_format == 'multi_accdoa':
             doa = self.fnn_list[-1](x) #x.shape  b,50,128 -> doa.shape ([128, 50, 156])  1.
-            doa = doa.reshape(doa.size(0), doa.size(1), 3, 4, 13) # b 50 3 4 13  2 
+            doa = doa.reshape(doa.size(0), doa.size(1), 3, 4, self.nb_classes) # b 50 3 4 13  2 
             doa1 = doa[:, :, :, :3, :]  #[128, 50, 3, 3, 13]
             dist = doa[:, :, :, 3:, :]  #[128, 50, 3, 1, 13]
 
