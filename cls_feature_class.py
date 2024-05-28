@@ -802,8 +802,8 @@ class FeatureClass:
             elif len(_words) == 7: # frame, class idx, source_id, cartesian coordinates(3), distance
                 _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4]), float(_words[5]), float(_words[6])/100 if cm2m else float(_words[6])])
         _fid.close()
-        # if len(_words) == 7:
-        #     _output_dict = self.convert_output_format_cartesian_to_polar(_output_dict)
+        if len(_words) == 7:
+            _output_dict = self.convert_output_format_cartesian_to_polar(_output_dict)
     
         return _output_dict   # len(_output_dict) == 606 == label time resolution
 

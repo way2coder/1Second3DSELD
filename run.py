@@ -436,8 +436,7 @@ def main(argv):
             data_in, vid_data_in, data_out = data_gen_train.get_data_sizes()
             model = models[params['model']](data_in, data_out, params, vid_data_in).to(device)
         else:
-            breakpoint()
-            data_in, data_out = data_gen_train.get_data_sizes() 
+            data_in, data_out = data_gen_train.get_data_sizes() #128,7,100,64  dataout128, 50, 168
             model = models[params['model']](data_in, data_out, params).to(device)
         
         if params['finetune_mode']:

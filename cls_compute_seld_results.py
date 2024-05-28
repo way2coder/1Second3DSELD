@@ -132,7 +132,7 @@ class ComputeSELDResults(object):
             
             'results_audio\\4888ae034c4e7bdc3c8e8b70b9d9d222_SeldModel\\21_1_dev_split0_polar_foa_val'
             pred_dict = self._feat_cls.load_output_format_file_from_prediction_file(os.path.join(pred_files_path, pred_file))  # TODO: why format is transfer from car to polar then polar to car again? 
-            # pred_dict = self._feat_cls.convert_output_format_polar_to_cartesian(pred_dict) # ???? 
+            pred_dict = self._feat_cls.convert_output_format_polar_to_cartesian(pred_dict) # ???? 
             if self.segment_level:
                 pred_labels = self._feat_cls.segment_labels(pred_dict, self._ref_labels[pred_file][1])
                 # pred_labels[segment-index][class-index] := list(frame-cnt-within-segment, azimuth, elevation)
@@ -140,6 +140,7 @@ class ComputeSELDResults(object):
                 pred_labels = self._feat_cls.organize_labels(pred_dict, self._ref_labels[pred_file][1])
                 # pred_labels[frame-index][class-index][track-index] := [azimuth, elevation]
             # Calculated scores 
+            breakpoint()
             eval.update_seld_scores(pred_labels, self._ref_labels[pred_file][0], eval_dist=self.evaluate_distance)  # 
             if is_jackknife:
                 pred_labels_dict[pred_file] = pred_labels
@@ -245,7 +246,8 @@ class ComputeSELDResults(object):
                                     dist_threshold=self._dist_thresh, reldist_threshold=self._reldist_thresh)
                 for pred_cnt, pred_file in enumerate(split_cnt_dict[split_key]):
                     # Load predicted output format file
-                    pred_dict = self._feat_cls.load_output_format_file(os.path.join(pred_output_format_files, pred_file))
+                    breakpoint()
+                    pred_dict = self._feat_cls.load_output_format_file_from_prediction_file(os.path.join(pred_output_format_files, pred_file))
                     pred_dict = self._feat_cls.convert_output_format_polar_to_cartesian(pred_dict)
                     if self.segment_level:
                         pred_labels = self._feat_cls.segment_labels(pred_dict, self._ref_labels[pred_file][1])
