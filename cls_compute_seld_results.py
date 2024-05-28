@@ -60,7 +60,8 @@ class ComputeSELDResults(object):
 
         # Load feature class
         self._feat_cls = cls_feature_class.FeatureClass(params)
-
+        
+        breakpoint()
         # collect reference files
         self._ref_labels = {}
         for split in os.listdir(self._desc_dir):
