@@ -6,8 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 from IPython import embed
-
-
+from parameters import get_params
+import sys
 
 
 class ConvBlock(nn.Module):
@@ -59,7 +59,8 @@ class SeldModel(torch.nn.Module):
         self.fnn_list.append(nn.Linear(params['fnn_size'] if params['nb_fnn_layers'] else self.params['rnn_size'], out_shape[-1], bias=True))
 
         self.doa_act = nn.Tanh()
-        self.dist_act = nn.ReLU()
+        self.dist_linear = nn.Linear(self.nb_classes, self.nb_classes)
+        self.dist_act = nn.ELU()
 
     def forward(self, x, vid_feat=None):
         """input: (batch_size, mic_channels, time_steps, mel_bins)"""
@@ -83,14 +84,18 @@ class SeldModel(torch.nn.Module):
             vid_feat = vid_feat.view(vid_feat.shape[0], vid_feat.shape[1], -1)  # b x 50 x 49
             vid_feat = self.visual_embed_to_d_model(vid_feat)
             x = self.transformer_decoder(x, vid_feat)
-
+        
+        # breakpoint()
         for fnn_cnt in range(len(self.fnn_list) - 1): # linear(128, 128) linear(128, 156)
             x = self.fnn_list[fnn_cnt](x)
         doa = self.fnn_list[-1](x) # b,50,156
 
-        doa = doa.reshape(doa.size(0), doa.size(1), 3, 4, 13) # b 50 3 4 13
+        doa = doa.reshape(doa.size(0), doa.size(1), 3, 4, self.nb_classes) # b 50 3 4 13
         doa1 = doa[:, :, :, :3, :]  #[128, 50, 3, 3, 13]
         dist = doa[:, :, :, 3:, :]  #[128, 50, 3, 1, 13]
+
+        dist = self.dist_linear(dist)
+
 
         doa1 = self.doa_act(doa1)
         dist = self.dist_act(dist)
@@ -99,3 +104,12 @@ class SeldModel(torch.nn.Module):
         doa2 = doa2.reshape((doa.size(0), doa.size(1), -1))
         
         return doa2
+
+
+
+
+if __name__ == '__main__':
+    params = get_params(sys.argv)
+
+    model = SeldModel((128,7,100,64),(128,50,168),params=params)
+

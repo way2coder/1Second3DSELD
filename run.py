@@ -201,7 +201,6 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
             
             start_time = time.time()
             data_generator.write_output_format_file(output_file, output_dict)
-            write_time += time.time() - start_time
 
             test_loss += loss.item()
             nb_test_batches += 1

@@ -802,7 +802,7 @@ class FeatureClass:
 
     def get_normalized_wts_file(self):
         return os.path.join(
-            self.get_normalized_feat_dir(self), 
+            self.get_normalized_feat_dir(), 
             '{}_{}wts'.format(self._dataset, self._filter_type)
         )
 
