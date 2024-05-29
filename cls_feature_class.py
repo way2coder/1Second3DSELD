@@ -55,11 +55,12 @@ class FeatureClass:
         self._is_eval = is_eval
 
         self._fs = params['fs']  # 24000
-        self._hop_len_s = params['hop_len_s']
-        self._hop_len = int(self._fs * self._hop_len_s) # 480
+        self._hop_len_s = params['hop_len_s']   
+        self._hop_len = int(self._fs * self._hop_len_s) # 480  
 
-        self._label_hop_len_s = params['label_hop_len_s']  # 0.1 second
-        self._label_hop_len = int(self._fs * self._label_hop_len_s) # 2400  sample
+        self._feature_sequence_length = params['feature_sequence_length']
+        self._label_hop_len_s = params['label_hop_len_s']  # 0.1 second 
+        self._label_hop_len = int(self._fs * self._label_hop_len_s) # 2400  sample 
         self._label_frame_res = self._fs / float(self._label_hop_len) # 10.0 
 
         self._win_len = 2 * self._hop_len # 960
@@ -526,7 +527,11 @@ class FeatureClass:
                 elif self._output_format == 'polar':
                     label_mat = self.get_polar_labels_for_file(desc_file_polar, nb_label_frames) # 
                 print('{}: {}, {}'.format(file_cnt, file_name, label_mat.shape))
-                np.save(os.path.join(self._label_dir, '{}.npy'.format(wav_filename.split('.')[0])), label_mat)
+                label_path = os.path.join(self._label_dir, '{}.npy'.format(wav_filename.split('.')[0]))
+                if os.path.exists(label_path):
+                    print(f"Skipping {label_path} as features are already extracted.")
+                else:
+                    np.save(label_path, label_mat)
 
     # ------------------------------- EXTRACT VISUAL FEATURES AND PREPROCESS IT -------------------------------
     @staticmethod 
@@ -781,14 +786,14 @@ class FeatureClass:
     def get_normalized_feat_dir(self):
         return os.path.join(
             self._feat_label_dir,
-            '{}_{}_norm'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type)
+            '{}_{}_{}seq_length_{}bins_{}hoplens_norm'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins,int(self._hop_len_s*1000))
         )
 
     def get_unnormalized_feat_dir(self):
         
         return os.path.join(
             self._feat_label_dir,
-            '{}_{}'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type)
+            '{}_{}_{}seq_length_{}bins_{}hoplens'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins,int(self._hop_len_s*1000))
         )
 
     def get_label_dir(self):
@@ -797,7 +802,7 @@ class FeatureClass:
         else:
             return os.path.join(
                 self._feat_label_dir,
-                f'{self._dataset_combination}_{self._output_format}_label'               
+                f'{self._dataset_combination}_{self._output_format}_{self._label_hop_len_s*1000}msres_label'               
         )
 
     def get_normalized_wts_file(self):
