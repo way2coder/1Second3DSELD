@@ -11,7 +11,7 @@ def get_params(argv='1'):
         quick_test=True,  # To do quick test. Trains/test on small subset of dataset, and # of epochs
 
         finetune_mode=True,  # Finetune on existing model, requires the pretrained model path set - pretrained_model_weights
-        pretrained_model_weights='3_1_dev_split0_multiaccdoa_foa_model.h5',
+        pretrained_model_weights='models_audio/31_1_dev_split0_multi_accdoa_foa_SeldConModel.h5',
 
         # INPUT PATH
         # dataset_dir='DCASE2020_SELD_dataset/',  # Base folder containing the foa/mic and metadata folders
@@ -31,10 +31,10 @@ def get_params(argv='1'):
         # FEATURE PARAMS
         filter = 'gammatone', # 'mel' / 'gammatone' / 'bark'
         fs=24000,  # sample rate
-        hop_len_s=0.01, # ??TODO original 0.02 
+        hop_len_s=0.02, # ??TODO original 0.02 
         label_hop_len_s=0.1,  # resolution in annotation file  TODO origina
         max_audio_len_s=60, # length for each audio file
-        nb_mel_bins=128,  # mel 64,128,256 TODO original 64 
+        nb_mel_bins=64,  # mel 64,128,256 TODO original 64 
 
         use_salsalite=False,  # Used for MIC dataset only. If true use salsalite features, else use GCC features
         fmin_doa_salsalite=50,
@@ -56,7 +56,7 @@ def get_params(argv='1'):
 
 
         # DNN MODEL PARAMETERS
-        model = 'SeldModel',   # model will be trained, default: SeldModel, SeldConModel
+        model = 'SeldConModel',   # model will be trained, default: SeldModel, SeldConModel
         label_sequence_length=50,    # Feature sequence length 
         batch_size=128,              # Batch size
         dropout_rate=0.05,           # Dropout rate, constant for all layers
@@ -105,7 +105,7 @@ def get_params(argv='1'):
         params['dataset'] = 'foa'
         params['multi_accdoa'] = False 
         params['output_format'] = 'single_accdoa'
-    
+
     elif argv == '32':
         print("FOA + single ACCDOA\n + gammatone")
         params['quick_test'] = False
@@ -121,15 +121,13 @@ def get_params(argv='1'):
         params['multi_accdoa'] = True
         params['output_format'] = 'multi_accdoa'
         # params['finetune_mode'] = False
+
     elif argv == '31':
         print("FOA + multi ACCDOA\n")
         params['quick_test'] = False
         params['dataset'] = 'foa'
         params['multi_accdoa'] = True
         params['output_format'] = 'multi_accdoa'
-        params['finetune_mode'] = False
-        params['models'] = 'SeldConModel'
-
 
 
     elif argv == '4':
