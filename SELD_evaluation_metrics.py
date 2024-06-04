@@ -223,20 +223,20 @@ class SELDMetrics(object):
         :param doa_thresh: DOA threshold for location sensitive detection.
         :param dist_thresh: Relative distance threshold for distance estimation
         '''
-        self._nb_classes = nb_classes
-        self.eval_dist = eval_dist
+        self._nb_classes = nb_classes  
+        self.eval_dist = eval_dist  #True
 
         # Variables for Location-senstive detection performance
-        self._TP = np.zeros(self._nb_classes)
-        self._FP = np.zeros(self._nb_classes)
-        self._FP_spatial = np.zeros(self._nb_classes)
-        self._FN = np.zeros(self._nb_classes)
+        self._TP = np.zeros(self._nb_classes) #    13
+        self._FP = np.zeros(self._nb_classes) #   13
+        self._FP_spatial = np.zeros(self._nb_classes) #13
+        self._FN = np.zeros(self._nb_classes)   #13
 
         self._Nref = np.zeros(self._nb_classes) 
 
-        self._ang_T = doa_threshold 
-        self._dist_T = dist_threshold
-        self._reldist_T = reldist_threshold
+        self._ang_T = doa_threshold   #20
+        self._dist_T = dist_threshold  # inf
+        self._reldist_T = reldist_threshold # 1
 
         self._S = 0
         self._D = 0
@@ -253,7 +253,7 @@ class SELDMetrics(object):
 
         self._idss = np.zeros(self._nb_classes)
 
-        self._average = average
+        self._average = average  # macro
 
     def early_stopping_metric(self, _er, _f, _ae, _lr, _rde):
         """
@@ -309,7 +309,7 @@ class SELDMetrics(object):
             RelDistE = self._total_RelDistE / (self._DE_TP + eps)
             RelDistE[self._DE_TP==0] = np.NaN
             LR = self._DE_TP / (eps + self._DE_TP + self._DE_FN)
-
+ 
             SELD_scr = self.early_stopping_metric(np.repeat(ER, self._nb_classes), F, AngE, LR, RelDistE)
 
             IDSR = self._idss / (self._Nref + eps)
@@ -321,6 +321,7 @@ class SELDMetrics(object):
 
             non_zero_F_indices = np.where(np.round(F,2) != 0)
 
+            # breakpoint()
             F, AngE, LR, SELD_scr, IDSR = F.mean(), np.nanmean(AngE[non_zero_F_indices]), LR[non_zero_F_indices].mean(), SELD_scr[non_zero_F_indices].mean(), IDSR.mean()
             DistE, RelDistE = np.nanmean(DistE[non_zero_F_indices]), np.nanmean(RelDistE[non_zero_F_indices])
         return (ER, F, AngE, DistE, RelDistE, LR, SELD_scr, classwise_results) if self.eval_dist else (
@@ -331,7 +332,7 @@ class SELDMetrics(object):
         Implements the spatial error averaging according to equation 5 in the paper [1] (see papers in the title of the code).
         Adds the multitrack extensions proposed in paper [2]
 
-        The input pred/gt must be Cartesian coordinates
+        The input pred/gt must be Cartesian coordinates. 
 
         :param pred: dictionary containing the predictions for every frame
             pred[frame-index][class-index][track-index] = [x, y, z, (distance)]
@@ -431,7 +432,7 @@ class SELDMetrics(object):
                     self._FP[class_cnt] += nb_pred_doas
                     self._DE_FP[class_cnt] += nb_pred_doas
                     assignations_pre[class_cnt] = {}
-                else:
+                else: #
                     # True negative
                     assignations_pre[class_cnt] = {}
 

@@ -27,6 +27,7 @@ class SeldModel(torch.nn.Module):
         
         self.nb_classes = params['unique_classes']
         self.params=params
+        self.output_format = params['output_format']
         self.conv_block_list = nn.ModuleList()
         # CNN module list 
         if len(params['f_pool_size']): 
@@ -58,6 +59,8 @@ class SeldModel(torch.nn.Module):
                 self.fnn_list.append(nn.Linear(params['fnn_size'] if fc_cnt else self.params['rnn_size'], params['fnn_size'], bias=True))
         self.fnn_list.append(nn.Linear(params['fnn_size'] if params['nb_fnn_layers'] else self.params['rnn_size'], out_shape[-1], bias=True))
 
+        if self.output_format == 'polar':
+            self.localization_output = PolarLocalizationOutput(128, self.params['unique_classes'])
         self.doa_act = nn.Tanh()
         self.dist_linear = nn.Linear(self.nb_classes, self.nb_classes)
         self.dist_act = nn.ELU()
@@ -65,6 +68,7 @@ class SeldModel(torch.nn.Module):
     def forward(self, x, vid_feat=None):
         """input: (batch_size, mic_channels, time_steps, mel_bins)"""
         # x.shape 128, 7, 250, 64 vid_feat.shape 
+        # breakpoint()
         for conv_cnt in range(len(self.conv_block_list)):
             x = self.conv_block_list[conv_cnt](x)
         # x.shape batchsize, 64, 50, 2
@@ -88,9 +92,9 @@ class SeldModel(torch.nn.Module):
         # breakpoint()
         for fnn_cnt in range(len(self.fnn_list) - 1): # linear(128, 128) linear(128, 156)
             x = self.fnn_list[fnn_cnt](x)
-        doa = self.fnn_list[-1](x) # b,50,156
+        doa = self.fnn_list[-1](x)
 
-        doa = doa.reshape(doa.size(0), doa.size(1), 3, 4, self.nb_classes) # b 50 3 4 13
+        doa = doa.reshape(doa.size(0), doa.size(1), 3, 4,  self.nb_classes) # b 50 3 4 13
         doa1 = doa[:, :, :, :3, :]  #[128, 50, 3, 3, 13]
         dist = doa[:, :, :, 3:, :]  #[128, 50, 3, 1, 13]
 
@@ -107,9 +111,46 @@ class SeldModel(torch.nn.Module):
 
 
 
+class PolarLocalizationOutput(nn.Module):
+
+    def __init__(self, input_dim: int, num_classes: int):
+        super(PolarLocalizationOutput, self).__init__()
+
+        self.source_activity_output = nn.Linear(input_dim, num_classes)
+        self.azimuth_output = nn.Linear(input_dim, num_classes)
+        self.elevation_output = nn.Linear(input_dim, num_classes)
+        self.distance_output = nn.Linear(input_dim, num_classes)
+
+        self.sed_act = nn.Sigmoid()
+        self.doa_act = nn.Tanh()
+        self.dist_act = nn.ReLU()
+
+    def forward(self, input: torch.Tensor):
+        source_activity = self.source_activity_output(input)
+        source_activity = self.sed_act(source_activity)
+
+        azimuth = self.azimuth_output(input)
+        azimuth = self.doa_act(azimuth)
+
+        elevation = self.elevation_output(input)
+        elevation = self.doa_act(elevation)
+
+        distance = self.distance_output(input)
+        distance = self.dist_act(distance)
+        
+        direction_of_arrival = torch.cat(
+            (source_activity.unsqueeze(-1), azimuth.unsqueeze(-1), elevation.unsqueeze(-1), distance.unsqueeze(-1)), dim=-1
+        )
+
+    
+
+        return direction_of_arrival
+# label target:  polar 128, 50, 52
 
 if __name__ == '__main__':
-    params = get_params(sys.argv)
+    tensor1 = torch.rand(3,3)
+    tensor2 = torch.rand(3,3)
+    tensor3 = torch.cat( (tensor1.unsqueeze(-1), tensor2), dim=-1)
+    print(tensor3.shape)
 
-    model = SeldModel((128,7,100,64),(128,50,168),params=params)
-
+    

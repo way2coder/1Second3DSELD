@@ -103,13 +103,14 @@ class MSELoss_ADPIT(object):
 
 
 class SELLoss(_Loss):
-    def __init__(self, max_num_sources: int, alpha: float = 1.0, reduction='none') -> None:
+    def __init__(self, max_num_sources: int = 13, alpha: float = 1.0, reduction='none') -> None:
         super(SELLoss, self).__init__(reduction=reduction)
         if not (0 <= alpha <= 1):
             raise ValueError('The weighting parameter must be a number between 0 and 1.')
         self.alpha = alpha
-        self.permutations = torch.from_numpy(np.array(list(permutations(range(max_num_sources)))))
+        # self.permutations = torch.from_numpy(np.array(list(permutations(range(max_num_sources)))))
         self.max_num_sources = max_num_sources
+        self.loss_dictionary = {'l1':[], 'l2':[], 'l3':[]}
 
     @staticmethod
     def compute_spherical_distance(y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
@@ -118,9 +119,14 @@ class SELLoss(_Loss):
         return torch.acos(F.hardtanh(sine_term + cosine_term, min_val=-1, max_val=1))
 
     def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> Tuple[torch.Tensor, dict]:
-        source_activity_pred, direction_of_arrival_pred, _ = predictions
-        source_activity_target, direction_of_arrival_target = targets
+        # breakpoint()
+        targets = targets.view(targets.shape[0], targets.shape[1], self.max_num_sources, 4)
+        source_activity_pred, direction_of_arrival_pred= predictions[..., 0], predictions[..., 1:4]
+        source_activity_target, direction_of_arrival_target = targets[...,0], targets[...,1:4]
+        '''
+        source_activity_pred (batchsize T 4)  direction_of_arrival_pred(batchsize T 4 2)
 
+        '''
         # Create mask for active sources
         source_activity_mask = source_activity_target.bool().unsqueeze(-1).expand_as(direction_of_arrival_pred)
         
@@ -128,24 +134,32 @@ class SELLoss(_Loss):
         direction_of_arrival_pred_masked = direction_of_arrival_pred.masked_fill(~source_activity_mask, 0)
         direction_of_arrival_target_masked = direction_of_arrival_target.masked_fill(~source_activity_mask, 0)
 
+
         # BCE loss for source activity
         source_activity_bce_loss = F.binary_cross_entropy_with_logits(source_activity_pred, source_activity_target, reduction=self.reduction)
     
         # Spherical distance
-        spherical_distance = self.compute_spherical_distance(direction_of_arrival_pred_masked, direction_of_arrival_target_masked)
+        spherical_distance = self.compute_spherical_distance(direction_of_arrival_pred_masked[...,:-1], direction_of_arrival_target_masked[...,:-1])
         # important! the  source_activity_bce_loss and the spherical_distance's shape are all [16, 25, 4]
 
-        # write your code  
-        breakpoint()
-        total_loss = torch.mean(source_activity_bce_loss) + self.alpha* torch.mean(spherical_distance) 
-        
-        meta_data = {
-            'source_activity_loss': torch.mean(source_activity_bce_loss),  # Convert to Python number
-            'direction_of_arrival_loss': torch.mean(spherical_distance) 
-         # Convert to Python number
-        }
 
-        return total_loss, meta_data
+        distance_criterion = nn.MSELoss()
+        distance_loss = distance_criterion(direction_of_arrival_pred_masked[...,-1], direction_of_arrival_target_masked[...,-1])
+        l1 = torch.mean(source_activity_bce_loss)
+        l2 = torch.mean(spherical_distance)
+        l3 = torch.mean(distance_loss)
+        self.loss_dictionary['l1'].append(l1)
+        self.loss_dictionary['l2'].append(l2)
+        self.loss_dictionary['l3'].append(l3)
+        total_loss =l1 + l2 + l3
+        
+        # meta_data = {
+        #     'source_activity_loss': torch.mean(source_activity_bce_loss),  # Convert to Python number
+        #     'direction_of_arrival_loss': torch.mean(spherical_distance) 
+        #  # Convert to Python number
+        # }
+
+        return total_loss
 
 def compute_angular_distance(x, y):
     """Computes the angle between two spherical direction-of-arrival points.

@@ -51,19 +51,20 @@ class ComputeSELDResults(object):
         
         self._desc_dir = ref_files_folder if ref_files_folder is not None else os.path.join(params['dataset_dir'],
                                                                                             'metadata_dev')
+        
         self._doa_thresh = params['lad_doa_thresh']
         self._dist_thresh = params['lad_dist_thresh'] if 'lad_dist_thresh' in params else float('inf')
         self._reldist_thresh = params['lad_reldist_thresh'] if 'lad_reldist_thresh' in params else float('inf')
         self.segment_level = params['segment_based_metrics'] if 'segment_based_metrics' in params else True
         self.evaluate_distance = params['evaluate_distance'] if 'evaluate_distance' in params else False
         assert not (self.segment_level and self.evaluate_distance), 'Segment level evaluation is not supported for distance evaluation'
-
+        # the values for above attributes: 20 , inf , 1, false, true
         # Load feature class
         self._feat_cls = cls_feature_class.FeatureClass(params)
-        
-        # breakpoint()
-        # collect reference files
+
+        # collect reference files, reference labels are the ground truth 
         self._ref_labels = {}
+        # 
         for split in os.listdir(self._desc_dir):
             for ref_file in os.listdir(os.path.join(self._desc_dir, split)):
                 # Load reference description file
@@ -74,8 +75,8 @@ class ComputeSELDResults(object):
                     self._ref_labels[ref_file] = [self._feat_cls.segment_labels(gt_dict, nb_ref_frames), nb_ref_frames]
                 else:
                     self._ref_labels[ref_file] = [self._feat_cls.organize_labels(gt_dict, nb_ref_frames), nb_ref_frames]
-
-        self._nb_ref_files = len(self._ref_labels)
+                    ##frame: {class: {track: [x, y, z, dist]}} 
+        self._nb_ref_files = len(self._ref_labels) # _nb_ref_files is the number of files that contained by ref folder
         self._average = params['average']
 
     @staticmethod
@@ -107,13 +108,19 @@ class ComputeSELDResults(object):
         return _cnt_dict
 
     def get_SELD_Results(self, pred_files_path, is_jackknife=False):
+        '''
+        
+        :param pred_files_path: Path, folder that contatins all the files which need to be evaluate 
+        :param is_jackknife: Boolean 
+        :return: 
+        '''
         # collect predicted files info
-        pred_files = os.listdir(pred_files_path)
+        pred_files = os.listdir(pred_files_path) 
         pred_labels_dict = {}
         if self.segment_level: # false, use event-based 
             eval = SELD_evaluation_metrics.SELDMetricsSegmentLevel(nb_classes=self._feat_cls.get_nb_classes(),
                                                        doa_threshold=self._doa_thresh, average=self._average)
-        else:
+        else: # frame-level
             eval = SELD_evaluation_metrics.SELDMetrics(nb_classes=self._feat_cls.get_nb_classes(),
                                     doa_threshold=self._doa_thresh, average=self._average, eval_dist=self.evaluate_distance,
                                     dist_threshold=self._dist_thresh, reldist_threshold=self._reldist_thresh) # 13, 20, macro, True, inf, 1 
@@ -121,8 +128,9 @@ class ComputeSELDResults(object):
         for pred_cnt, pred_file in enumerate(pred_files):
             # Load predicted output format file
             
-            pred_dict = self._feat_cls.load_output_format_file(os.path.join(pred_files_path, pred_file)) 
-            pred_dict = self._feat_cls.convert_output_format_polar_to_cartesian(pred_dict)
+            'results_audio\\4888ae034c4e7bdc3c8e8b70b9d9d222_SeldModel\\21_1_dev_split0_polar_foa_val'
+            pred_dict = self._feat_cls.load_output_format_file_from_prediction_file(os.path.join(pred_files_path, pred_file))  # TODO: why format is transfer from car to polar then polar to car again? 
+            pred_dict = self._feat_cls.convert_output_format_polar_to_cartesian(pred_dict) # ???? 
             if self.segment_level:
                 pred_labels = self._feat_cls.segment_labels(pred_dict, self._ref_labels[pred_file][1])
                 # pred_labels[segment-index][class-index] := list(frame-cnt-within-segment, azimuth, elevation)
@@ -130,7 +138,7 @@ class ComputeSELDResults(object):
                 pred_labels = self._feat_cls.organize_labels(pred_dict, self._ref_labels[pred_file][1])
                 # pred_labels[frame-index][class-index][track-index] := [azimuth, elevation]
             # Calculated scores 
-            eval.update_seld_scores(pred_labels, self._ref_labels[pred_file][0], eval_dist=self.evaluate_distance)
+            eval.update_seld_scores(pred_labels, self._ref_labels[pred_file][0], eval_dist=self.evaluate_distance)  # 
             if is_jackknife:
                 pred_labels_dict[pred_file] = pred_labels
         # Overall SED and DOA scores
@@ -235,6 +243,7 @@ class ComputeSELDResults(object):
                                     dist_threshold=self._dist_thresh, reldist_threshold=self._reldist_thresh)
                 for pred_cnt, pred_file in enumerate(split_cnt_dict[split_key]):
                     # Load predicted output format file
+                    
                     pred_dict = self._feat_cls.load_output_format_file(os.path.join(pred_output_format_files, pred_file))
                     pred_dict = self._feat_cls.convert_output_format_polar_to_cartesian(pred_dict)
                     if self.segment_level:
@@ -262,8 +271,11 @@ class ComputeSELDResults(object):
                     print('Distance metrics: Distance error: {:0.1f}, Relative distance error: {:0.1f}'.format(DistE, RelDistE))
 
 
-def reshape_3Dto2D(A):
-    return A.reshape(A.shape[0] * A.shape[1], A.shape[2])
+def reshape_3Dto2D(A): # 128, 50, 13 -> 128* 50, 13
+    if len(A.shape) == 3:
+        return A.reshape(A.shape[0] * A.shape[1], A.shape[2])
+    elif len(A.shape) == 4:
+        return A.reshape(A.shape[0] * A.shape[1], A.shape[2], A.shape[3])
 
 
 if __name__ == "__main__":

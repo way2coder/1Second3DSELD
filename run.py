@@ -18,6 +18,7 @@ plot.switch_backend('agg')
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
 
 import cls_feature_class
 import cls_data_generator
@@ -25,7 +26,8 @@ import parameters
 from cls_compute_seld_results import ComputeSELDResults, reshape_3Dto2D
 from SELD_evaluation_metrics import distance_between_cartesian_coordinates
 from models import models
-from criterions import MSELoss_ADPIT
+from criterions import MSELoss_ADPIT, SELLoss
+from cls_dataset import *
 def init_logging_file(unique_hash_str):
     '''initiate the logging features, and the results will all dumped into results_audio/{unique_hash_str}'''
     os.makedirs(unique_hash_str, exist_ok=True)
@@ -46,10 +48,13 @@ def get_experiment_hash(params):
     ).hexdigest()
 
 
-def get_accdoa_labels(accdoa_in, nb_classes):
-    x, y, z = accdoa_in[:, :, :nb_classes], accdoa_in[:, :, nb_classes:2*nb_classes], accdoa_in[:, :, 2*nb_classes:]
-    sed = np.sqrt(x**2 + y**2 + z**2) > 0.5
-      
+def get_accdoa_labels(accdoa_in, nb_classes, output_format):
+    # accdoa_in.shape (batchsize, T/5, 52)
+    if output_format == 'single_accoda':
+        x, y, z = accdoa_in[:, :, :nb_classes], accdoa_in[:, :, nb_classes:2*nb_classes], accdoa_in[:, :, 2*nb_classes:]
+        sed = np.sqrt(x**2 + y**2 + z**2) > 0.5
+
+        
     return sed, accdoa_in
 
 
@@ -93,8 +98,17 @@ def determine_similar_location(sed_pred0, sed_pred1, doa_pred0, doa_pred1, class
     else:
         return 0
 
+def polar_to_cartesian(azi,ele):
+    x = np.sin(ele) * np.cos(azi)
+    y = np.sin(ele) * np.sin(azi)
+    z = np.cos(ele)
+    return x, y, z
 
-def test_epoch(data_generator, model, criterion, dcase_output_folder, params, device):
+
+
+
+
+def validation_epoch(data_generator, model, criterion, dcase_output_folder, params, device, epoch):
     # Number of frames for a 60 second audio with 100ms hop length = 600 frames
     # Number of frames in one batch (batch_size* sequence_length) consists of all the 600 frames above with zero padding in the remaining frames
     test_filelist = data_generator.get_filelist()
@@ -109,98 +123,115 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
             if len(values) == 2:
                 data, target = values    # data[(114, 7, 250, 64)] target[(114, 50, 6, 5, 13)]
                 data, target = torch.tensor(data).to(device).float(), torch.tensor(target).to(device).float()
-                output = model(data) # output ([114, 50, 156])
+                output = model(data) # multiaccdoa output ([114, 50, 156]) single accodoa batchsize, T/5, 65
             elif len(values) == 3:
                 data, vid_feat, target = values
                 data, vid_feat, target = torch.tensor(data).to(device).float(), torch.tensor(vid_feat).to(device).float(), torch.tensor(target).to(device).float()
-            
-                output = model(data, vid_feat)
+
+                output = model(data, vid_feat) 
             # inference_time += time.time() - start_time
 
             start_time = time.time()
             loss = criterion(output, target)
             # loss_time += time.time() - start_time
 
-            if params['output_format'] == 'multi_accdoa':
-                sed_pred0, doa_pred0, dist_pred0, sed_pred1, doa_pred1, dist_pred1, sed_pred2, doa_pred2, dist_pred2 = get_multi_accdoa_labels(output.detach().cpu().numpy(), params['unique_classes'])
-                sed_pred0 = reshape_3Dto2D(sed_pred0) # 5700, 13
-                doa_pred0 = reshape_3Dto2D(doa_pred0) # 5700, 39
-                dist_pred0 = reshape_3Dto2D(dist_pred0) # 5700, 13
-                sed_pred1 = reshape_3Dto2D(sed_pred1) 
-                doa_pred1 = reshape_3Dto2D(doa_pred1)
-                dist_pred1 = reshape_3Dto2D(dist_pred1)
-                sed_pred2 = reshape_3Dto2D(sed_pred2)
-                doa_pred2 = reshape_3Dto2D(doa_pred2)
-                dist_pred2 = reshape_3Dto2D(dist_pred2)
-            else:
-                sed_pred, doa_pred = get_accdoa_labels(output.detach().cpu().numpy(), params['unique_classes'])
-                sed_pred = reshape_3Dto2D(sed_pred)
-                doa_pred = reshape_3Dto2D(doa_pred)
-            
-            # reshape_time += time.time() - start_time
-            # dump SELD results to the correspondin file
-            # file nameformat 3_1_dev_split0_multiaccdoa_foa_val\\fold4_room10_mix003.csv   test_filelist[file_cnt] --- 'fold4_room10_mix003.npy'
-            output_file = os.path.join(dcase_output_folder, test_filelist[file_cnt].replace('.npy', '.csv')) 
-            file_cnt += 1 # file_cnt update
-            output_dict = {} # initiate per batch 
-            if params['output_format'] == 'multi_accdoa':
-                for frame_cnt in range(sed_pred0.shape[0]): # for each batchsize & timestep 
-                    for class_cnt in range(sed_pred0.shape[1]): # for each class 
-                        # determine whether track0 is similar to track1 
-                        flag_0sim1 = determine_similar_location(sed_pred0[frame_cnt][class_cnt], sed_pred1[frame_cnt][class_cnt], doa_pred0[frame_cnt], doa_pred1[frame_cnt], class_cnt, params['thresh_unify'], params['unique_classes'])
-                        flag_1sim2 = determine_similar_location(sed_pred1[frame_cnt][class_cnt], sed_pred2[frame_cnt][class_cnt], doa_pred1[frame_cnt], doa_pred2[frame_cnt], class_cnt, params['thresh_unify'], params['unique_classes'])
-                        flag_2sim0 = determine_similar_location(sed_pred2[frame_cnt][class_cnt], sed_pred0[frame_cnt][class_cnt], doa_pred2[frame_cnt], doa_pred0[frame_cnt], class_cnt, params['thresh_unify'], params['unique_classes'])
-                        # unify or not unify according to flag
-                        if flag_0sim1 + flag_1sim2 + flag_2sim0 == 0:  # each track is not similar with the other track 
-                            if sed_pred0[frame_cnt][class_cnt]>0.5: 
-                                if frame_cnt not in output_dict:
-                                    output_dict[frame_cnt] = []
-                                output_dict[frame_cnt].append([class_cnt, doa_pred0[frame_cnt][class_cnt], doa_pred0[frame_cnt][class_cnt+params['unique_classes']], doa_pred0[frame_cnt][class_cnt+2*params['unique_classes']], dist_pred0[frame_cnt][class_cnt]])
-                            if sed_pred1[frame_cnt][class_cnt]>0.5:
-                                if frame_cnt not in output_dict:
-                                    output_dict[frame_cnt] = []
-                                output_dict[frame_cnt].append([class_cnt, doa_pred1[frame_cnt][class_cnt], doa_pred1[frame_cnt][class_cnt+params['unique_classes']], doa_pred1[frame_cnt][class_cnt+2*params['unique_classes']], dist_pred1[frame_cnt][class_cnt]])
-                            if sed_pred2[frame_cnt][class_cnt]>0.5:
-                                if frame_cnt not in output_dict:
-                                    output_dict[frame_cnt] = []
-                                output_dict[frame_cnt].append([class_cnt, doa_pred2[frame_cnt][class_cnt], doa_pred2[frame_cnt][class_cnt+params['unique_classes']], doa_pred2[frame_cnt][class_cnt+2*params['unique_classes']], dist_pred2[frame_cnt][class_cnt]])
-                        elif flag_0sim1 + flag_1sim2 + flag_2sim0 == 1:
-                            if frame_cnt not in output_dict:
-                                output_dict[frame_cnt] = []
-                            if flag_0sim1:
-                                if sed_pred2[frame_cnt][class_cnt]>0.5:
-                                    output_dict[frame_cnt].append([class_cnt, doa_pred2[frame_cnt][class_cnt], doa_pred2[frame_cnt][class_cnt+params['unique_classes']], doa_pred2[frame_cnt][class_cnt+2*params['unique_classes']], dist_pred2[frame_cnt][class_cnt]])
-                                doa_pred_fc = (doa_pred0[frame_cnt] + doa_pred1[frame_cnt]) / 2
-                                dist_pred_fc = (dist_pred0[frame_cnt] + dist_pred1[frame_cnt]) / 2
-                                output_dict[frame_cnt].append([class_cnt, doa_pred_fc[class_cnt], doa_pred_fc[class_cnt+params['unique_classes']], doa_pred_fc[class_cnt+2*params['unique_classes']], dist_pred_fc[class_cnt]])
-                            elif flag_1sim2:
-                                if sed_pred0[frame_cnt][class_cnt]>0.5:
+            if epoch % params['write_output_file_patience'] == 0: # 计算
+                if params['output_format'] == 'multi_accdoa':
+                    sed_pred0, doa_pred0, dist_pred0, sed_pred1, doa_pred1, dist_pred1, sed_pred2, doa_pred2, dist_pred2 = get_multi_accdoa_labels(output.detach().cpu().numpy(), params['unique_classes'])
+                    sed_pred0 = reshape_3Dto2D(sed_pred0) # 5700, 13
+                    doa_pred0 = reshape_3Dto2D(doa_pred0) # 5700, 39
+                    dist_pred0 = reshape_3Dto2D(dist_pred0) # 5700, 13
+                    sed_pred1 = reshape_3Dto2D(sed_pred1) 
+                    doa_pred1 = reshape_3Dto2D(doa_pred1)
+                    dist_pred1 = reshape_3Dto2D(dist_pred1)
+                    sed_pred2 = reshape_3Dto2D(sed_pred2)
+                    doa_pred2 = reshape_3Dto2D(doa_pred2)
+                    dist_pred2 = reshape_3Dto2D(dist_pred2)
+                elif params['output_format'] == 'single_accdoa': #output (b, 50, 13*4)
+                    sed_pred, doa_pred = get_accdoa_labels(output.detach().cpu().numpy(), params['unique_classes'], params['output_format'])
+                    sed_pred = reshape_3Dto2D(sed_pred) # time, 13
+                    doa_pred = reshape_3Dto2D(doa_pred)  # time 
+                elif params['output_format'] == 'polar': #output b, 50, 13, 4
+                    sed_pred , doa_pred, dist_pred = output.detach().cpu().numpy()[...,0], output.detach().cpu().numpy()[...,1:3], output.detach().cpu().numpy()[...,-1]
+                    sed_pred = reshape_3Dto2D(sed_pred) # time, 13
+                    doa_pred = reshape_3Dto2D(doa_pred)  # time 
+                    dist_pred = reshape_3Dto2D(dist_pred) 
+                
+                # reshape_time += time.time() - start_time
+                # dump SELD results to the correspondin file
+                # file nameformat 3_1_dev_split0_multiaccdoa_foa_val\\fold4_room10_mix003.csv   test_filelist[file_cnt] --- 'fold4_room10_mix003.npy'
+                output_file = os.path.join(dcase_output_folder, test_filelist[file_cnt].replace('.npy', '.csv')) 
+                file_cnt += 1 # file_cnt update
+                output_dict = {} # initiate per batch 
+                if params['output_format'] == 'multi_accdoa':
+                    for frame_cnt in range(sed_pred0.shape[0]): # for each batchsize & timestep 
+                        for class_cnt in range(sed_pred0.shape[1]): # for each class 
+                            # determine whether track0 is similar to track1 
+                            flag_0sim1 = determine_similar_location(sed_pred0[frame_cnt][class_cnt], sed_pred1[frame_cnt][class_cnt], doa_pred0[frame_cnt], doa_pred1[frame_cnt], class_cnt, params['thresh_unify'], params['unique_classes'])
+                            flag_1sim2 = determine_similar_location(sed_pred1[frame_cnt][class_cnt], sed_pred2[frame_cnt][class_cnt], doa_pred1[frame_cnt], doa_pred2[frame_cnt], class_cnt, params['thresh_unify'], params['unique_classes'])
+                            flag_2sim0 = determine_similar_location(sed_pred2[frame_cnt][class_cnt], sed_pred0[frame_cnt][class_cnt], doa_pred2[frame_cnt], doa_pred0[frame_cnt], class_cnt, params['thresh_unify'], params['unique_classes'])
+                            # unify or not unify according to flag
+                            # breakpoint
+                            if flag_0sim1 + flag_1sim2 + flag_2sim0 == 0:  # each track is not similar with the other track 
+                                if sed_pred0[frame_cnt][class_cnt]>0.5: 
+                                    if frame_cnt not in output_dict:
+                                        output_dict[frame_cnt] = []
                                     output_dict[frame_cnt].append([class_cnt, doa_pred0[frame_cnt][class_cnt], doa_pred0[frame_cnt][class_cnt+params['unique_classes']], doa_pred0[frame_cnt][class_cnt+2*params['unique_classes']], dist_pred0[frame_cnt][class_cnt]])
-                                doa_pred_fc = (doa_pred1[frame_cnt] + doa_pred2[frame_cnt]) / 2
-                                dist_pred_fc = (dist_pred1[frame_cnt] + dist_pred2[frame_cnt]) / 2
-                                output_dict[frame_cnt].append([class_cnt, doa_pred_fc[class_cnt], doa_pred_fc[class_cnt+params['unique_classes']], doa_pred_fc[class_cnt+2*params['unique_classes']], dist_pred_fc[class_cnt]])
-                            elif flag_2sim0:
                                 if sed_pred1[frame_cnt][class_cnt]>0.5:
+                                    if frame_cnt not in output_dict:
+                                        output_dict[frame_cnt] = []
                                     output_dict[frame_cnt].append([class_cnt, doa_pred1[frame_cnt][class_cnt], doa_pred1[frame_cnt][class_cnt+params['unique_classes']], doa_pred1[frame_cnt][class_cnt+2*params['unique_classes']], dist_pred1[frame_cnt][class_cnt]])
-                                doa_pred_fc = (doa_pred2[frame_cnt] + doa_pred0[frame_cnt]) / 2
-                                dist_pred_fc = (dist_pred2[frame_cnt] + dist_pred0[frame_cnt]) / 2
+                                if sed_pred2[frame_cnt][class_cnt]>0.5:
+                                    if frame_cnt not in output_dict:
+                                        output_dict[frame_cnt] = []
+                                    output_dict[frame_cnt].append([class_cnt, doa_pred2[frame_cnt][class_cnt], doa_pred2[frame_cnt][class_cnt+params['unique_classes']], doa_pred2[frame_cnt][class_cnt+2*params['unique_classes']], dist_pred2[frame_cnt][class_cnt]])
+                            elif flag_0sim1 + flag_1sim2 + flag_2sim0 == 1:
+                                if frame_cnt not in output_dict:
+                                    output_dict[frame_cnt] = []
+                                if flag_0sim1:
+                                    if sed_pred2[frame_cnt][class_cnt]>0.5:
+                                        output_dict[frame_cnt].append([class_cnt, doa_pred2[frame_cnt][class_cnt], doa_pred2[frame_cnt][class_cnt+params['unique_classes']], doa_pred2[frame_cnt][class_cnt+2*params['unique_classes']], dist_pred2[frame_cnt][class_cnt]])
+                                    doa_pred_fc = (doa_pred0[frame_cnt] + doa_pred1[frame_cnt]) / 2
+                                    dist_pred_fc = (dist_pred0[frame_cnt] + dist_pred1[frame_cnt]) / 2
+                                    output_dict[frame_cnt].append([class_cnt, doa_pred_fc[class_cnt], doa_pred_fc[class_cnt+params['unique_classes']], doa_pred_fc[class_cnt+2*params['unique_classes']], dist_pred_fc[class_cnt]])
+                                elif flag_1sim2:
+                                    if sed_pred0[frame_cnt][class_cnt]>0.5:
+                                        output_dict[frame_cnt].append([class_cnt, doa_pred0[frame_cnt][class_cnt], doa_pred0[frame_cnt][class_cnt+params['unique_classes']], doa_pred0[frame_cnt][class_cnt+2*params['unique_classes']], dist_pred0[frame_cnt][class_cnt]])
+                                    doa_pred_fc = (doa_pred1[frame_cnt] + doa_pred2[frame_cnt]) / 2
+                                    dist_pred_fc = (dist_pred1[frame_cnt] + dist_pred2[frame_cnt]) / 2
+                                    output_dict[frame_cnt].append([class_cnt, doa_pred_fc[class_cnt], doa_pred_fc[class_cnt+params['unique_classes']], doa_pred_fc[class_cnt+2*params['unique_classes']], dist_pred_fc[class_cnt]])
+                                elif flag_2sim0:
+                                    if sed_pred1[frame_cnt][class_cnt]>0.5:
+                                        output_dict[frame_cnt].append([class_cnt, doa_pred1[frame_cnt][class_cnt], doa_pred1[frame_cnt][class_cnt+params['unique_classes']], doa_pred1[frame_cnt][class_cnt+2*params['unique_classes']], dist_pred1[frame_cnt][class_cnt]])
+                                    doa_pred_fc = (doa_pred2[frame_cnt] + doa_pred0[frame_cnt]) / 2
+                                    dist_pred_fc = (dist_pred2[frame_cnt] + dist_pred0[frame_cnt]) / 2
+                                    output_dict[frame_cnt].append([class_cnt, doa_pred_fc[class_cnt], doa_pred_fc[class_cnt+params['unique_classes']], doa_pred_fc[class_cnt+2*params['unique_classes']], dist_pred_fc[class_cnt]])
+                            elif flag_0sim1 + flag_1sim2 + flag_2sim0 >= 2:
+                                if frame_cnt not in output_dict:
+                                    output_dict[frame_cnt] = []
+                                doa_pred_fc = (doa_pred0[frame_cnt] + doa_pred1[frame_cnt] + doa_pred2[frame_cnt]) / 3
+                                dist_pred_fc = (dist_pred0[frame_cnt] + dist_pred1[frame_cnt] + dist_pred2[frame_cnt]) / 3
+                        
                                 output_dict[frame_cnt].append([class_cnt, doa_pred_fc[class_cnt], doa_pred_fc[class_cnt+params['unique_classes']], doa_pred_fc[class_cnt+2*params['unique_classes']], dist_pred_fc[class_cnt]])
-                        elif flag_0sim1 + flag_1sim2 + flag_2sim0 >= 2:
-                            if frame_cnt not in output_dict:
-                                output_dict[frame_cnt] = []
-                            doa_pred_fc = (doa_pred0[frame_cnt] + doa_pred1[frame_cnt] + doa_pred2[frame_cnt]) / 3
-                            dist_pred_fc = (dist_pred0[frame_cnt] + dist_pred1[frame_cnt] + dist_pred2[frame_cnt]) / 3
-                            output_dict[frame_cnt].append([class_cnt, doa_pred_fc[class_cnt], doa_pred_fc[class_cnt+params['unique_classes']], doa_pred_fc[class_cnt+2*params['unique_classes']], dist_pred_fc[class_cnt]])
-            else:
-                for frame_cnt in range(sed_pred.shape[0]):
-                    for class_cnt in range(sed_pred.shape[1]):
-                        if sed_pred[frame_cnt][class_cnt]>0.5:
-                            if frame_cnt not in output_dict:
-                                output_dict[frame_cnt] = []
-                            output_dict[frame_cnt].append([class_cnt, doa_pred[frame_cnt][class_cnt], doa_pred[frame_cnt][class_cnt+params['unique_classes']], doa_pred[frame_cnt][class_cnt+2*params['unique_classes']]]) 
-            
-            start_time = time.time()
-            data_generator.write_output_format_file(output_file, output_dict)
+                elif params['output_format'] == 'single_accdoa':
+                    for frame_cnt in range(sed_pred.shape[0]): 
+                        for class_cnt in range(sed_pred.shape[1]):
+                            if sed_pred[frame_cnt][class_cnt]>0.5:
+                                if frame_cnt not in output_dict:
+                                    output_dict[frame_cnt] = []
+                                output_dict[frame_cnt].append([class_cnt, doa_pred[frame_cnt][class_cnt], doa_pred[frame_cnt][class_cnt+params['unique_classes']], doa_pred[frame_cnt][class_cnt+2*params['unique_classes']]]) 
+                                # 
+                elif params['output_format'] == 'polar':
+                    for frame_cnt in range(sed_pred.shape[0]): 
+                        for class_cnt in range(sed_pred.shape[1]):
+                            if sed_pred[frame_cnt][class_cnt]>0.5:
+                                if frame_cnt not in output_dict:
+                                    output_dict[frame_cnt] = []
+                                x, y, z = polar_to_cartesian(doa_pred[frame_cnt][class_cnt][0],doa_pred[frame_cnt][class_cnt][1])
+                                output_dict[frame_cnt].append([class_cnt, x, y, z, dist_pred[frame_cnt][class_cnt]]) 
+                                # 
+                # start_time = time.time()
+                data_generator.write_output_format_file(output_file, output_dict, params['output_format'])
 
             test_loss += loss.item()
             nb_test_batches += 1
@@ -217,16 +248,18 @@ def train_epoch(data_generator, optimizer, model, criterion, params, device):
     for values in data_generator.generate(): # generate? 
         # load one batch of data
         if len(values) == 2:
-            data, target = values
+            # breakpoint()
+            data, target = values   # data always be (batchsize, 7, 250, 64)  target: single_accdoa(batchsize, 50, 52) multi_accdoa (batchsize, 50, 6, 5, 13)
             data, target = torch.tensor(data).to(device).float(), torch.tensor(target).to(device).float()
             optimizer.zero_grad()
-            output = model(data)
+            output = model(data)  # TODO:model should be modify 
         elif len(values) == 3:
             data, vid_feat, target = values
             data, vid_feat, target = torch.tensor(data).to(device).float(), torch.tensor(vid_feat).to(device).float(), torch.tensor(target).to(device).float()
             optimizer.zero_grad()
             output = model(data, vid_feat)
 
+        
         loss = criterion(output, target)
         loss.backward()
         optimizer.step()
@@ -240,6 +273,44 @@ def train_epoch(data_generator, optimizer, model, criterion, params, device):
 
     return train_loss
 
+# def update_metrics_history(metrics_history, val_F, val_LE, val_rel_dist_err):
+#     """
+#     将当前 epoch 的指标添加到历史指标中
+#     :param metrics_history: 历史指标的 NumPy 数组
+#     :param val_F: 当前 epoch 的 F-score
+#     :param val_LE: 当前 epoch 的 DOA 角度误差
+#     :param val_rel_dist_err: 当前 epoch 的相对距离误差
+#     :return: 更新后的历史指标 NumPy 数组
+#     """
+#     new_metrics = np.array([[val_F, val_LE, val_rel_dist_err]])
+#     return np.vstack([metrics_history, new_metrics])
+
+# def compute_cumulative_rank(metrics_history):
+#     """
+#     根据历史指标计算每个 epoch 的累计排名
+#     :param metrics_history: 历史指标的 NumPy 数组
+#     :return: 每个 epoch 的累计排名
+#     """
+#     ranks = np.empty_like(metrics_history)
+    
+#     # F-score 越大越好，所以取负数后排序
+#     ranks[:, 0] = np.argsort(np.argsort(-metrics_history[:, 0]))
+#     # DOA 角度误差越小越好
+#     ranks[:, 1] = np.argsort(np.argsort(metrics_history[:, 1]))
+#     # 相对距离误差越小越好
+#     ranks[:, 2] = np.argsort(np.argsort(metrics_history[:, 2]))
+    
+#     # 累积排名
+#     cumulative_ranks = np.sum(ranks, axis=1)
+    
+#     return cumulative_ranks
+
+def should_save_model(val_F, val_LE, val_rel_dist_err, best_F, best_LE, best_rel_dist_err):
+
+    if val_F > best_F or ((best_F - val_F) < 0.01 and val_LE < best_LE and val_rel_dist_err < best_rel_dist_err):
+        return True
+    else: 
+        return False
 
 def main(argv):
     """
@@ -349,7 +420,8 @@ def main(argv):
 
         # Load train and validation data,
         logging.info('Loading training dataset:')
-        
+        # train_dataset = YourCustomDataset(params, train_splits[split_cnt])
+        # train_loader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=True)
         data_gen_train = cls_data_generator.DataGenerator(
             params=params, split=train_splits[split_cnt]
         ) # init a class that generator the train data, split = [1, 2, 3]
@@ -365,12 +437,12 @@ def main(argv):
             data_in, vid_data_in, data_out = data_gen_train.get_data_sizes()
             model = models[params['model']](data_in, data_out, params, vid_data_in).to(device)
         else:
-            data_in, data_out = data_gen_train.get_data_sizes() 
+            data_in, data_out = data_gen_train.get_data_sizes() #128,7,100,64  dataout128, 50, 168
             model = models[params['model']](data_in, data_out, params).to(device)
         
         if params['finetune_mode']:
             logging.info('Running in finetuning mode. Initializing the model to the weights - {}'.format(params['pretrained_model_weights']))
-            state_dict = torch.load(params['pretrained_model_weights'], map_location='cpu')
+            state_dict = torch.load(params['pretrained_model_weights'], map_location='cpu') 
             if params['modality'] == 'audio_visual':
                 state_dict = {k: v for k, v in state_dict.items() if 'fnn' not in k}
             model.load_state_dict(state_dict, strict=False)
@@ -390,12 +462,13 @@ def main(argv):
         logging.info('Dumping recording-wise val results in: {}'.format(dcase_output_val_folder))
 
         # Initialize evaluation metric class, use a class to evaluate the params
-        score_obj = ComputeSELDResults(params)
+        score_obj = ComputeSELDResults(params)  #cls_compute_seld_results
 
         # start training
         best_val_epoch = -1
         best_ER, best_F, best_LE, best_LR, best_seld_scr, best_dist_err, best_rel_dist_err = 1., 0., 180., 0., 9999, 999999., 999999.
         patience_cnt = 0
+        metrics_history = np.empty((0, 3))  # save the main 3 metrics required by this year's challenge
 
         nb_epoch = 2 if params['quick_test'] else params['nb_epochs']
         optimizer = optim.Adam(model.parameters(), lr=params['lr'])
@@ -406,7 +479,7 @@ def main(argv):
         elif params['output_format'] == 'single_accdoa':
             criterion = nn.MSELoss()
         elif params['output_format'] == 'polar':
-            pass 
+            criterion = SELLoss(params['unique_classes'])
         for epoch_cnt in range(nb_epoch):
             # ---------------------------------------------------------------------
             # TRAINING
@@ -419,17 +492,19 @@ def main(argv):
             # ---------------------------------------------------------------------
 
             start_time = time.time()
-            val_loss = test_epoch(data_gen_val, model, criterion, dcase_output_val_folder, params, device)
+            val_loss = validation_epoch(data_gen_val, model, criterion, dcase_output_val_folder, params, device, epoch_cnt)
             # Calculate the DCASE 2021 metrics - Location-aware detection and Class-aware localization scores
             val_time = time.time() - start_time
             
             start_time = time.time()
-            val_ER, val_F, val_LE, val_dist_err, val_rel_dist_err, val_LR, val_seld_scr, classwise_val_scr = score_obj.get_SELD_Results(dcase_output_val_folder)
+            if epoch_cnt % params['write_output_file_patience'] == 0:
+                val_ER, val_F, val_LE, val_dist_err, val_rel_dist_err, val_LR, val_seld_scr, classwise_val_scr = score_obj.get_SELD_Results(dcase_output_val_folder)
 
             metric__time = time.time() - start_time
 
-            # Save model if F-score is good F socre? 
-            if val_F >= best_F:
+            # metrics_history = update_metrics_history(metrics_history, val_F, val_LE, val_rel_dist_err)
+            # F1score: val_F DOA angular error:val_LE relative distance error: val_rel_dist_err
+            if should_save_model(val_F, val_LE, val_rel_dist_err, best_F, best_LE, best_rel_dist_err):
                 best_val_epoch, best_ER, best_F, best_LE, best_LR, best_seld_scr, best_dist_err = epoch_cnt, val_ER, val_F, val_LE, val_LR, val_seld_scr, val_dist_err
                 best_rel_dist_err = val_rel_dist_err
                 torch.save(model.state_dict(), model_name)
@@ -450,7 +525,7 @@ def main(argv):
                     '({:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f})'.format( best_F, best_LE, best_dist_err, best_rel_dist_err, best_seld_scr))
             )
 
-            if patience_cnt > params['patience']:
+            if patience_cnt > params['nb_early_stop_patience']:
                 break
 
         # ---------------------------------------------------------------------
@@ -470,8 +545,9 @@ def main(argv):
         logging.info('Dumping recording-wise test results in: {}'.format(dcase_output_test_folder))
 
         # the results will be saved into *_test file
-        test_loss = test_epoch(data_gen_test, model, criterion, dcase_output_test_folder, params, device)
+        test_loss = validation_epoch(data_gen_test, model, criterion, dcase_output_test_folder, params, device)
         # 2024 challenge only focus test_F, test_LE,  test_dist_err 
+
         use_jackknife=True
         test_ER, test_F, test_LE, test_dist_err, test_rel_dist_err, test_LR, test_seld_scr, classwise_test_scr = score_obj.get_SELD_Results(dcase_output_test_folder, is_jackknife=use_jackknife )
 
@@ -505,11 +581,24 @@ def main(argv):
                     '[{:0.2f}, {:0.2f}]'.format(classwise_test_scr[1][6][cls_cnt][0],
                                                 classwise_test_scr[1][6][cls_cnt][1]) if use_jackknife else ''))
 
+
+
+def get_seld_result(argv):
+    task_id = '1' if len(argv) < 2 else argv[1]
+    params = parameters.get_params(task_id)
+
+    score_obj = ComputeSELDResults(params)
+    
+    dcase_output_val_folder = r'G:\DCASE2024_seld_baseline\results_audio\3_1_dev_split0_multiaccdoa_foa_20240410110923_val'
+    val_ER, val_F, val_LE, val_dist_err, val_rel_dist_err, val_LR, val_seld_scr, classwise_val_scr = score_obj.get_SELD_Results(dcase_output_val_folder)
+
+    print(val_ER, val_F, val_LE, val_dist_err, val_rel_dist_err, val_LR, val_seld_scr)
+
 if __name__ == "__main__":
     
+    # get_seld_result(sys.argv)
     try:
-        sys.exit(main(sys.argv))
-
+        main(sys.argv)
     except (ValueError, IOError) as e:
         sys.exit(e)
 
