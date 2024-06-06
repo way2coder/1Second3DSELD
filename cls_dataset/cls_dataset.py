@@ -13,7 +13,28 @@ from parameters import get_params
 import sys
 
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 
+
+
+class LRUCache:
+    def __init__(self, capacity: int = 10) -> None:
+        self.cache = OrderedDict()
+        self.capacity = capacity
+
+    def get(self, key):
+        if key not in self.cache:
+            return None 
+        else: 
+            self.cache.move_to_end(key)
+            return self.cache[key]
+        
+    def put(self, key, value):
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        self.cache[key] = value
+        if len(self.cache) > self.capacity:
+            self.cache.popitem(last=False)
 
 class SELDDataset(Dataset):
 
@@ -28,7 +49,7 @@ class SELDDataset(Dataset):
         # self._per_file = per_file   
         self._is_eval = is_eval
         # self._splits = np.array(split)    #[1 ,2, 3] actually is [3] 
-        self._dataset = params['dataset']
+        self._dataset = params['dataset']          
         self._train_test = train_test
         self._splits = splits
         self._overlapping_events = overlapping_events
@@ -52,6 +73,8 @@ class SELDDataset(Dataset):
         self._doa_len = None    # DOA label length 
         self._nb_classes = self._feat_cls.get_nb_classes()  # 14
 
+
+        self.cache = LRUCache(capacity=10)
         self._circ_buf_feat = None
         self._circ_buf_label = None
 
@@ -141,30 +164,51 @@ class SELDDataset(Dataset):
         self, index: int
     ) -> Tuple[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         chunk = self.chunks[index]
+        feat_file_path = os.path.abspath(chunk['feat_npy_file'])
+        label_file_path = os.path.abspath(chunk['label_npy_file'])
         
-        feat_npy = np.load(os.path.abspath(chunk['feat_npy_file']))
-        label_npy = np.load(os.path.abspath(chunk["label_npy_file"]))
+        feat_npy = self.cache.get(feat_file_path)
+        if feat_npy is None:
+            feat_npy = np.load(feat_file_path)
+            self.cache.put(feat_file_path, feat_npy)
         
-        feat_start_frame = chunk['feat_start_frame']
-        feat_end_frame = chunk['feat_end_frame']
+        label_npy = self.cache.get(label_file_path)
+        if label_npy is None:
+            label_npy = np.load(label_file_path)
+            self.cache.put(label_file_path, label_npy)
 
-        label_start_frame = chunk['label_start_frame']
-        label_end_frame = chunk['label_end_frame']
-        
-        feat = feat_npy[feat_start_frame:feat_end_frame]
-        label = label_npy[label_start_frame:label_end_frame]
+        feat = feat_npy[chunk['feat_start_frame']:chunk['feat_end_frame']]
+        label = label_npy[chunk['label_start_frame']:chunk['label_end_frame']]
+
         feat = feat.reshape(feat.shape[0], 7, self._nb_mel_bins)
-        # breakpoint()
-    
         feat = np.transpose(feat, (1, 0, 2))
-        # print(source_activity.shape)
+
         feat_tensor = torch.from_numpy(feat).float()
         label_tensor = torch.from_numpy(label).float()
+        # feat_npy = np.load(os.path.abspath(chunk['feat_npy_file']))
+        # label_npy = np.load(os.path.abspath(chunk["label_npy_file"]))
+        
+
+        # feat_npy = self.cache.get()
+        # feat_start_frame = chunk['feat_start_frame']
+        # feat_end_frame = chunk['feat_end_frame']
+
+        # label_start_frame = chunk['label_start_frame']
+        # label_end_frame = chunk['label_end_frame']
+        
+        # feat = feat_npy[feat_start_frame:feat_end_frame]
+        # label = label_npy[label_start_frame:label_end_frame]
+        # feat = feat.reshape(feat.shape[0], 7, self._nb_mel_bins)
+        # # breakpoint()
+    
+        # feat = np.transpose(feat, (1, 0, 2))
+        # # print(source_activity.shape)
+        # feat_tensor = torch.from_numpy(feat).float()
+        # label_tensor = torch.from_numpy(label).float()
         
         # 返回特征和标签的张量
         return feat_tensor, label_tensor
 
-    
 
 
 

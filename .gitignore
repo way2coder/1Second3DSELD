@@ -15,3 +15,9 @@ results_audio/
 
 # explore data property
 ExploreData/
+
+
+
+# visualization file 
+runs/
+profile.svg

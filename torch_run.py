@@ -468,10 +468,10 @@ def main(argv):
         logging.info('Loading training dataset:')
         
         train_dataset = SELDDataset(params, 'train')
-        train_loader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=True) 
+        train_loader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=False, num_workers= 8 ) 
 
         validation_dataset = SELDDataset(params, 'val')
-        validation_loader = DataLoader(validation_dataset, batch_size=params['batch_size'], shuffle=True) 
+        validation_loader = DataLoader(validation_dataset, batch_size=params['batch_size'], shuffle=False, num_workers=8) 
 
 
         # data_gen_train = cls_data_generator.DataGenerator(
@@ -546,15 +546,15 @@ def main(argv):
             # ---------------------------------------------------------------------
 
             start_time = time.time()
-            val_loss = validation_epoch(validation_loader, model, criterion, dcase_output_val_folder, params, device)
+            val_loss = validation_epoch(validation_loader, optimizer, model, criterion, params, device)   #(train_loader, optimizer, model, criterion, params, device):
             # Calculate the DCASE 2021 metrics - Location-aware detection and Class-aware localization scores
             val_time = time.time() - start_time
             
             start_time = time.time()
             # val_ER, val_F, val_LE, val_dist_err, val_rel_dist_err, val_LR, val_seld_scr, classwise_val_scr = score_obj.get_SELD_Results(dcase_output_val_folder)
 
-            metric__time = time.time() - start_time
-
+            metric_time = time.time() - start_time
+            best_val_loss = val_loss if val_loss < best_val_loss else best_val_loss
             # metrics_history = update_metrics_history(metrics_history, val_F, val_LE, val_rel_dist_err)
             # F1score: val_F DOA angular error:val_LE relative distance error: val_rel_dist_err
             if epoch_cnt > 100 and (len(best_models) < max_models or val_loss < best_models[-1][0]) :
@@ -589,11 +589,11 @@ def main(argv):
             #         '({:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f})'.format( best_F, best_LE, best_dist_err, best_rel_dist_err, best_seld_scr))
             # )
             logging.info(
-                'epoch: {}, time: {:0.2f}/{:0.2f}/{:0.2f}, '
-                'train_loss: {:0.4f}, val_loss: {:0.4f}, '
+                f'epoch: {epoch_cnt}, time: {train_time:0.2f}/{ val_time:0.2f}/{metric_time:0.2f}, '
+                f'train_loss: {train_loss:0.4f}, val_loss: {val_loss:0.4f}, '
                 # 'F/AE/Dist_err/Rel_dist_err/SELD: {}, '
                 # 'best_val_epoch: {} {}'.format(
-                #     epoch_cnt, train_time, val_time,metric__time,
+                #     epoch_cnt, train_time, val_time,metric_time,
                 #     train_loss, val_loss,
                 #     '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(val_F, val_LE, val_dist_err, val_rel_dist_err, val_seld_scr),
                 #     best_val_epoch,
