@@ -21,3 +21,4 @@ ExploreData/
 # visualization file 
 runs/
 profile.svg
+*.h5
