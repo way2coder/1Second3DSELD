@@ -51,7 +51,7 @@ class ComputeSELDResults(object):
         
         self._desc_dir = ref_files_folder if ref_files_folder is not None else os.path.join(params['dataset_dir'],
                                                                                             'metadata_dev')
-        
+        self._nb_classs = params['unique_classes'] 
         self._doa_thresh = params['lad_doa_thresh']
         self._dist_thresh = params['lad_dist_thresh'] if 'lad_dist_thresh' in params else float('inf')
         self._reldist_thresh = params['lad_reldist_thresh'] if 'lad_reldist_thresh' in params else float('inf')
@@ -194,11 +194,11 @@ class ComputeSELDResults(object):
             if self.evaluate_distance:
                 return ([ER, conf_interval[0]], [F, conf_interval[1]], [AngE, conf_interval[2]],
                         [DistE, conf_interval[3]], [RelDistE, conf_interval[4]], [LR, conf_interval[5]],
-                        [seld_scr, conf_interval[6]], [classwise_results, np.array(conf_interval)[7:].reshape(7, 13, 2)
+                        [seld_scr, conf_interval[6]], [classwise_results, np.array(conf_interval)[7:].reshape(7, self._nb_classs, 2)
                                                             if len(classwise_results) else []])
             else:
                 return [ER, conf_interval[0]], [F, conf_interval[1]], [AngE, conf_interval[2]], [LR, conf_interval[3]], [
-                    seld_scr, conf_interval[4]], [classwise_results, np.array(conf_interval)[5:].reshape(5, 13, 2) if len(
+                    seld_scr, conf_interval[4]], [classwise_results, np.array(conf_interval)[5:].reshape(5, self._nb_classs, 2) if len(
                     classwise_results) else []]
 
         else:

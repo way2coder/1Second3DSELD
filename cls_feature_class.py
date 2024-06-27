@@ -45,6 +45,7 @@ class FeatureClass:
 
         self._vid_dir = os.path.join(self._dataset_dir, 'video_{}'.format('eval' if is_eval else 'dev')) # 
         # Output directories
+        self._preprocessing_type = params['preprocessing_type']
         self._label_dir = None
         self._feat_dir = None
         self._feat_dir_norm = None
@@ -107,7 +108,7 @@ class FeatureClass:
                 self._mel_wts, _ = gammatone_fbanks.gammatone_filter_banks(nfilts=self._nb_mel_bins, nfft=self._nfft, fs=self._fs, scale='descendant')
                 self._mel_wts = self._mel_wts.T
             elif self._filter_type == 'bark':
-                self._mel_wts, _ = bark_fbanks.bark_filter_banks(nfilts=self._nb_mel_bins, nfft=self._nfft, fs=self._fs).T
+                self._mel_wts, _ = bark_fbanks.bark_filter_banks(nfilts=self._nb_mel_bins, nfft=self._nfft, fs=self._fs)
                 self._mel_wts = self._mel_wts.T            
             else:
                 raise ValueError("Unsupported filter type: {}".format(self._filter_type))
@@ -169,7 +170,7 @@ class FeatureClass:
         return 2 ** (x - 1).bit_length()
 
     def _spectrogram(self, audio_input, _nb_frames):
-        
+     
         _nb_ch = audio_input.shape[1]
         nb_bins = self._nfft // 2
         spectra = []
@@ -178,7 +179,7 @@ class FeatureClass:
                                         win_length=self._win_len, window='hann')
             spectra.append(stft_ch[:, :_nb_frames])
         return np.array(spectra).T
-
+ 
     def _get_mel_spectrogram(self, linear_spectra): # get mel spectrogram
         
         mel_feat = np.zeros((linear_spectra.shape[0], self._nb_mel_bins, linear_spectra.shape[-1]))
@@ -238,7 +239,7 @@ class FeatureClass:
     def _get_spectrogram_for_file(self, audio_filename):
         
         audio_in, fs = self._load_audio(audio_filename)  # ((1072800, 4), 24000)  (-1, 1) + 1e-8 
- 
+
         nb_feat_frames = int(len(audio_in) / float(self._hop_len))   # 2235 = 1072800 / 480
         nb_label_frames = int(len(audio_in) / float(self._label_hop_len)) # 447 = 1072800/2400
         self._filewise_frames[os.path.basename(audio_filename).split('.')[0]] = [nb_feat_frames, nb_label_frames]
@@ -429,31 +430,39 @@ class FeatureClass:
 
     def extract_file_feature(self, _arg_in): # 提取单个wav文件的特征
         _file_cnt, _wav_path, _feat_path = _arg_in # (1, '../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix002.wav', '../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy')
-        spect = self._get_spectrogram_for_file(_wav_path) #  (2235, 513, 4)
-        # extract mel
-        if not self._use_salsalite:
-            mel_spect = self._get_mel_spectrogram(spect) # get mel from spectrogram, (2235, 256)
-
-        feat = None
-        if self._data_type == 'foa':
-            # extract intensity vectors from spect 
-            foa_iv = self._get_foa_intensity_vectors(spect) # 2235, 192
-            feat = np.concatenate((mel_spect, foa_iv), axis=-1) # 2235, 448 = 2235, 64*7 = T, 64, 7
-        elif self._data_type == 'mic':
-            if self._use_salsalite:
-                feat = self._get_salsalite(spect)
-            else: 
-                # extract gcc
-                gcc = self._get_gcc(spect)
-                feat = np.concatenate((mel_spect, gcc), axis=-1)
-        else:
-            print('ERROR: Unknown dataset format {}'.format(self._data_type))
-            exit()
+        if self._preprocessing_type == 'iv_7':
+            spect = self._get_spectrogram_for_file(_wav_path) #  (2235, 513, 4)
+            # extract mel
+            if not self._use_salsalite:
+                mel_spect = self._get_mel_spectrogram(spect) # get mel from spectrogram, (2235, 256)
+ 
+            feat = None
+            if self._data_type == 'foa': 
+                # extract intensity vectors from spect 
+                foa_iv = self._get_foa_intensity_vectors(spect) # 2235, 192
+                feat = np.concatenate((mel_spect, foa_iv), axis=-1) # 2235, 448 = 2235, 64*7 = T, 64, 7
+            elif self._data_type == 'mic':
+                if self._use_salsalite:
+                    feat = self._get_salsalite(spect)
+                else: 
+                    # extract gcc
+                    gcc = self._get_gcc(spect)
+                    feat = np.concatenate((mel_spect, gcc), axis=-1)
+            else:
+                print('ERROR: Unknown dataset format {}'.format(self._data_type))
+                exit()
+        elif  self._preprocessing_type == 'spec_8':
+            spect = self._get_spectrogram_for_file(_wav_path) #  (2235, 513, 4)
+            feat = np.concatenate( (np.abs(spect), np.angle(spect)), axis=2)  
+            
 
         if feat is not None:
             print('{}: {}, {}'.format(_file_cnt, os.path.basename(_wav_path), feat.shape))
+
             np.save(_feat_path, feat)  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy
-  
+
+
+
     def extract_all_feature(self): 
         # setting up folders
         self._feat_dir = self.get_unnormalized_feat_dir() # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_mel'
@@ -465,7 +474,7 @@ class FeatureClass:
         print('Extracting spectrogram:')
         print('\t\taud_dir {}\n\t\tdesc_dir {}\n\t\tfeat_dir {}'.format(
             self._aud_dir, self._desc_dir, self._feat_dir))  # ('../Dataset/STARSS2023\\foa_dev', '../Dataset/STARSS2023\\metadata_dev', '../Dataset/STARSS2023/feat_label_hnet/foa_dev_mel')
-        arg_list = [] 
+        arg_list = []    
         if self._dataset in ['STARSS2023']:
             for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
                 loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
@@ -1140,14 +1149,14 @@ class FeatureClass:
     def get_normalized_feat_dir(self):
         return os.path.join(
             self._feat_label_dir,
-            '{}_{}_{}seq_length_{}bins_{}s_seglength_norm'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins, int(self._segment_length))
+            '{}_{}_{}seq_length_{}bins_{}s_seglength_{}_norm'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins, int(self._segment_length),self._preprocessing_type)
         )
 
     def get_unnormalized_feat_dir(self):
         
         return os.path.join(
             self._feat_label_dir,
-            '{}_{}_{}seq_length_{}bins_{}s_seglength'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins,int(self._segment_length))
+            '{}_{}_{}seq_length_{}bins_{}s_seglength_{}'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins,int(self._segment_length),self._preprocessing_type)
         )
 
     def get_label_dir(self):

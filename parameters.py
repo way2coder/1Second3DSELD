@@ -69,7 +69,7 @@ L3DAS21_sound_class_mapping = {
     'Male_speech_and_man_speaking': 0, 
     'Laughter': 0
 }
-
+ 
 
 def get_params(argv='1'):
     print("SET: {}".format(argv))
@@ -77,7 +77,6 @@ def get_params(argv='1'):
     
     params = dict(
         quick_test=True,  # To do quick test. Trains/test on small subset of dataset, and # of epochs
-  
         finetune_mode=True,  # Finetune on existing model, requires the pretrained model path set - pretrained_model_weights
         pretrained_model_weights='./models_audio/3_1_dev_split0_multi_accdoa_STARSS2023_SeldModel.h5',
         datasets_dir_dic = {'ANSYN': '../Dataset/ANSYN', 'ASIRD': '../Dataset/ASIRD', 'L3DAS21': '../Dataset/L3DAS21', 'STARSS2023': '../Dataset/STARSS2023'},
@@ -100,6 +99,7 @@ def get_params(argv='1'):
         dataset = 'ANSYN', # ANSYN, ASIRD, L3DAS21, STARSS2023, and this need to be a string 
 
         # FEATURE PARAMS
+        preprocessing_type = 'iv_7', # 'spec_8'
         filter = 'gammatone', # 'mel' / 'gammatone' / 'bark'
         hop_len_s=0.005, # ??
         label_hop_len_s=0.05,  # resolution in annotation file
@@ -250,6 +250,31 @@ def get_params(argv='1'):
         params['dataset'] = 'STARSS2023'
         params['quick_test'] = False
 
+    elif argv == '256':
+        print("FOA + multi ACCDOA\n")
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['output_format'] = 'multi_accdoa' 
+        # params['finetune_mode'] = False
+        params['hop_len_s'] = 0.005      # related to win_len
+        params['label_hop_len_s'] =0.05  # resolution in annotation file, predict twice for every second 
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20 
+        params['nb_mel_bins'] = 256 
+
+    elif argv == '512':
+        print("FOA + multi ACCDOA\n")
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['output_format'] = 'multi_accdoa' 
+        # params['finetune_mode'] = False
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20  
+        params['nb_mel_bins'] = 512 
 
 
 

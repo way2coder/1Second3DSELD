@@ -126,8 +126,8 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
         for values in data_generator.generate(): # for ebatch
             if len(values) == 2:
                 data, target = values    # data[(114, 7, 250, 64)] target[(114, 50, 6, 5, 13)]
-                # data, target = torch.tensor(data).to(device).float(), torch.tensor(target).to(device).float()
-                data, target = data.to(device), target.to(device)
+                data, target = torch.tensor(data).to(device).float(), torch.tensor(target).to(device).float()
+                # data, target = data.to(device), target.to(device)
                 output = model(data) # multiaccdoa output ([114, 50, 156]) single accodoa batchsize, T/5, 65
             elif len(values) == 3:
                 data, vid_feat, target = values
@@ -278,7 +278,7 @@ def train_epoch(train_loader, optimizer, model, criterion, params, device):
     return train_loss
 
 
-def validation_epoch(train_loader, optimizer, model, criterion, params, device):
+def validation_epoch(train_loader, optimizer, model, criterion, params, device,     ):
     nb_train_batches, train_loss = 0, 0.
     model.train()  # set to train model 
     for batch_idx, values in enumerate(train_loader):
@@ -486,10 +486,12 @@ def main(argv):
         # Collect i/o data size and load model configuration, load model weights to model
         # model we used are wrapped in models/ folder, you can modify it in parameter.py  
         if params['modality'] == 'audio_visual':
-            data_in, vid_data_in, data_out = data_gen_val.get_data_sizes()
+            data_in, vid_data_in, data_out = data_gen_val.get_data_sizes()  
             model = models[params['model']](data_in, data_out, params, vid_data_in).to(device)
         else:
             data_in, data_out = data_gen_val.get_data_sizes() 
+            # data_in  tuple (570, 7, 100, 128)
+            # data_out tuple (20, 180) 
             model = models[params['model']](data_in, data_out, params).to(device)
         
         if params['finetune_mode']:
@@ -525,7 +527,7 @@ def main(argv):
 
         nb_epoch = 2 if params['quick_test'] else params['nb_epochs']
         optimizer = optim.Adam(model.parameters(), lr=params['lr'])
-
+        schedular = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=params['nb_epochs'])
         # criterion
         if params['output_format'] == 'multi_accdoa':
             criterion = MSELoss_ADPIT()
@@ -533,7 +535,7 @@ def main(argv):
             criterion = nn.MSELoss()
         elif params['output_format'] == 'polar':
             criterion = SELLoss(params['unique_classes'])
-
+        lr = []
         for epoch_cnt in range(nb_epoch):
             # ---------------------------------------------------------------------
             # TRAINING
@@ -554,6 +556,8 @@ def main(argv):
             # val_ER, val_F, val_LE, val_dist_err, val_rel_dist_err, val_LR, val_seld_scr, classwise_val_scr = score_obj.get_SELD_Results(dcase_output_val_folder)
 
             metric_time = time.time() - start_time
+
+            schedular.step()
             best_val_loss = val_loss if val_loss < best_val_loss else best_val_loss
             # metrics_history = update_metrics_history(metrics_history, val_F, val_LE, val_rel_dist_err)
             # F1score: val_F DOA angular error:val_LE relative distance error: val_rel_dist_err

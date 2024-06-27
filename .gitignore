@@ -15,6 +15,7 @@ results_audio/
 
 # explore data property
 ExploreData/
+Results/
 
 
 
@@ -22,3 +23,6 @@ ExploreData/
 runs/
 profile.svg
 *.h5
+
+
+parameters.py
