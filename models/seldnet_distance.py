@@ -115,7 +115,7 @@ class SELDDistanceModule(nn.Module):
 
     def forward(self, x):
         # features extraction
-        breakpoint()
+        # breakpoint()
         x_real, x_imm = self.STFT(x)
         # b, c, t, f = x_real.size()
         magn = torch.sqrt(torch.pow(x_real, 2) + torch.pow(x_imm, 2))
