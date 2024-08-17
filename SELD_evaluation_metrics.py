@@ -288,14 +288,14 @@ class SELDMetrics(object):
             F = self._TP.sum() / (eps + self._TP.sum() + self._FP_spatial.sum() + 0.5 * (self._FP.sum() + self._FN.sum()))
 
             # Class-sensitive localization performance
-            AngE = self._total_AngE.sum() / float(self._DE_TP.sum() + eps) if self._DE_TP.sum() else np.NaN
-            DistE = self._total_DistE.sum() / float(self._DE_TP.sum() + eps) if self._DE_TP.sum() else np.NaN
-            RelDistE = self._total_RelDistE.sum() / float(self._DE_TP.sum() + eps) if self._DE_TP.sum() else np.NaN
+            AngE = self._total_AngE.sum() / float(self._DE_TP.sum() + eps) if self._DE_TP.sum() else np.nan
+            DistE = self._total_DistE.sum() / float(self._DE_TP.sum() + eps) if self._DE_TP.sum() else np.nan
+            RelDistE = self._total_RelDistE.sum() / float(self._DE_TP.sum() + eps) if self._DE_TP.sum() else np.nan
             LR = self._DE_TP.sum() / (eps + self._DE_TP.sum() + self._DE_FN.sum())
 
             SELD_scr = self.early_stopping_metric(ER, F, AngE, LR, RelDistE)
 
-            IDSR = self._idss.sum() / self._Nref.sum() if self._Nref.sum() else np.NaN
+            IDSR = self._idss.sum() / self._Nref.sum() if self._Nref.sum() else np.nan
 
         elif self._average == 'macro':
             # Location-sensitive detection performance
@@ -303,17 +303,17 @@ class SELDMetrics(object):
 
             # Class-sensitive localization performance
             AngE = self._total_AngE / (self._DE_TP + eps)
-            AngE[self._DE_TP==0] = np.NaN
+            AngE[self._DE_TP==0] = np.nan
             DistE = self._total_DistE / (self._DE_TP + eps)
-            DistE[self._DE_TP==0] = np.NaN
+            DistE[self._DE_TP==0] = np.nan
             RelDistE = self._total_RelDistE / (self._DE_TP + eps)
-            RelDistE[self._DE_TP==0] = np.NaN
+            RelDistE[self._DE_TP==0] = np.nan
             LR = self._DE_TP / (eps + self._DE_TP + self._DE_FN)
  
             SELD_scr = self.early_stopping_metric(np.repeat(ER, self._nb_classes), F, AngE, LR, RelDistE)
 
             IDSR = self._idss / (self._Nref + eps)
-            IDSR[self._Nref==0] = np.NaN
+            IDSR[self._Nref==0] = np.nan
 
             classwise_results = np.array(
                 [np.repeat(ER, self._nb_classes), F, AngE, DistE, RelDistE, LR, SELD_scr] if self.eval_dist else [

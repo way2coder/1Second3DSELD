@@ -79,8 +79,8 @@ def get_params(argv='1'):
         quick_test=True,  # To do quick test. Trains/test on small subset of dataset, and # of epochs
         finetune_mode=True,  # Finetune on existing model, requires the pretrained model path set - pretrained_model_weights
         pretrained_model_weights='./models_audio/3_1_dev_split0_multi_accdoa_STARSS2023_SeldModel.h5',
-        datasets_dir_dic = {'ANSYN': '../Dataset/ANSYN', 'ASIRD': '../Dataset/ASIRD', 'L3DAS21': '../Dataset/L3DAS21', 'STARSS2023': '../Dataset/STARSS2023'},
-        feat_label_dir_dic = {'ANSYN': '../Dataset/ANSYN/feat_label_hnet', 'ASIRD': '../Dataset/ASIRD/feat_label_hnet', 'L3DAS21': '../Dataset/L3DAS21/feat_label_hnet', 'STARSS2023': '../Dataset/STARSS2023/feat_label_hnet'},
+        datasets_dir_dic = {'ANSYN': '../Dataset/ANSYN', 'ASIRD': '../Dataset/ASIRD', 'L3DAS21': '../Dataset/L3DAS21', 'STARSS2023': '../../dataset/STARSS2023'},
+        feat_label_dir_dic = {'ANSYN': '../Dataset/ANSYN/feat_label_hnet', 'ASIRD': '../Dataset/ASIRD/feat_label_hnet', 'L3DAS21': '../Dataset/L3DAS21/feat_label_hnet', 'STARSS2023': '../../dataset/STARSS2023/feat_label_hnet'},
         fs_dic = {'ANSYN': 44100, 'ASIRD': 44100, 'L3DAS21': 32000, 'STARSS2023':24000},
         max_audio_len_s_dic = {'ANSYN': 30 , 'ASIRD': 30, 'L3DAS21': 60, 'STARSS2023':60},
 
@@ -145,7 +145,7 @@ def get_params(argv='1'):
         fnn_size=128,  # FNN contents, length of list = number of layers, list value = number of nodes
 
         # HYPER PARAMETERS
-        nb_epochs=250,  # Train for maximum epochs
+        nb_epochs=10000,  # Train for maximum epochs
         nb_early_stop_patience = 50,  # if the validation loss have not improved for 50 epochs, then stop trainning 
         write_output_file_patience = 5,
         lr=1e-3,
@@ -197,7 +197,7 @@ def get_params(argv='1'):
         params['data_type'] = 'foa'
         params['multi_accdoa'] = True
         params['output_format'] = 'multi_accdoa' 
-        # params['finetune_mode'] = False
+        params['finetune_mode'] = False
         params['hop_len_s'] = 0.01   
         params['label_hop_len_s'] =0.05  # resolution in annotation file
         params['dataset'] = 'STARSS2023'

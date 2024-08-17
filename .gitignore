@@ -24,5 +24,6 @@ runs/
 profile.svg
 *.h5
 
-
+# bash file
+*.sh
 parameters.py

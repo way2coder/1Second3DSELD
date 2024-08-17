@@ -45,6 +45,21 @@ def init_logging_file(unique_hash_str):
     logging.getLogger('').addHandler(console_handler)
 
 def main(argv):
+    """
+    Main entry function.
+
+    Parameters:
+    argv: List of command-line arguments. The function expects two arguments:
+        1. task_id: Identifier for the task. Defaults to '1' if not provided. Used to retrieve task-specific parameters.
+        2. model_folder: Path to the folder containing model files. This should be an absolute path pointing to the directory where model checkpoints are stored.
+
+    Description:
+    - `task_id` is used to select and load parameters relevant to a specific task by calling `parameters.get_params(task_id)`.
+    - `model_folder` is the directory where model files are located. The model checkpoints in this folder will be loaded during execution.
+
+    Example:
+    python script.py 1 /path/to/model/folder
+    """
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
     task_id = '1' if len(argv) < 2 else argv[1]

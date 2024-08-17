@@ -611,6 +611,7 @@ class FeatureClass:
         # if self._dataset in ['STARSS2023']:
         #     for sub_folder in os.listdir(self._desc_dir):
         #         loc_desc_folder = os.path.join(self._desc_dir, sub_folder)
+        print(f'new label dir :{self._new_label_dir}')
         for file_cnt, file_name in enumerate(os.listdir(self._new_label_dir)):   
             # for each file(like fold4_room23_mix001.csv), process it into label hop frames according to the self._filewise_frames
             wav_filename = '{}.wav'.format(file_name.split('.')[0])

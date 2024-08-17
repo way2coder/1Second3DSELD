@@ -561,24 +561,26 @@ def main(argv):
             best_val_loss = val_loss if val_loss < best_val_loss else best_val_loss
             # metrics_history = update_metrics_history(metrics_history, val_F, val_LE, val_rel_dist_err)
             # F1score: val_F DOA angular error:val_LE relative distance error: val_rel_dist_err
-            if epoch_cnt > 100 and (len(best_models) < max_models or val_loss < best_models[-1][0]) :
-                # 保存新的模型
-                model_path = os.path.join(models_dir, str(epoch_cnt) + '.h5')
-                # model_name.replace('.h5', f'_epoch{epoch_cnt}_loss{val_loss:.4f}.h5')
-                torch.save(model.state_dict(), model_path)
-                # 更新最佳模型列表
-                if len(best_models) < max_models:
-                    best_models.append((val_loss, model_path))
+            
+            if epoch_cnt > 100:
+                if (len(best_models) < max_models or val_loss < best_models[-1][0]) :
+                    # 保存新的模型
+                    model_path = os.path.join(models_dir, str(epoch_cnt) + '.h5')
+                    # model_name.replace('.h5', f'_epoch{epoch_cnt}_loss{val_loss:.4f}.h5')
+                    torch.save(model.state_dict(), model_path)
+                    # 更新最佳模型列表
+                    if len(best_models) < max_models:
+                        best_models.append((val_loss, model_path))
+                    else:
+                        # 删除最差的模型
+                        os.remove(best_models[-1][1])
+                        best_models[-1] = (val_loss, model_path)
+                    
+                    # 保持列表排序
+                    best_models.sort(key=lambda x: x[0])
+                    patience_cnt = 0
                 else:
-                    # 删除最差的模型
-                    os.remove(best_models[-1][1])
-                    best_models[-1] = (val_loss, model_path)
-                
-                # 保持列表排序
-                best_models.sort(key=lambda x: x[0])
-                patience_cnt = 0
-            else:
-                patience_cnt += 1
+                    patience_cnt += 1
 
             # logging.info stats
             # logging.info(
@@ -614,6 +616,7 @@ def main(argv):
         logging.info('Load best model weights')
         for model_name in  best_models:
             logging.info(f'model name {model_name}')
+            model_name = model_name[1]
             model.load_state_dict(torch.load(model_name, map_location='cpu'))
             
             logging.info('Loading unseen test dataset:')
