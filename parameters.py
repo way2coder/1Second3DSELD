@@ -100,6 +100,7 @@ def get_params(argv='1'):
 
         # FEATURE PARAMS
         preprocessing_type = 'iv_7', # 'spec_8'
+        data_augmentation = True, # if this variarble is set to be true, then the function 'dev_feat_cls.extract_all_feature()' will generate all these features
         filter = 'gammatone', # 'mel' / 'gammatone' / 'bark'
         hop_len_s=0.005, # ??
         label_hop_len_s=0.05,  # resolution in annotation file
@@ -129,7 +130,7 @@ def get_params(argv='1'):
         # DNN MODEL PARAMETERS
         model = 'SeldModel',   # model will be trained, default: SeldModel, SeldConModel
         label_sequence_length=50,    # Feature sequence length 
-        batch_size=128,              # Batch size
+        batch_size=256,              # Batch size
         dropout_rate=0.05,           # Dropout rate, constant for all layers
         nb_cnn2d_filt=64,           # Number of CNN nodes, constant for each layer
         f_pool_size=[4, 4, 2],      # CNN frequency pooling, length of list = number of CNN layers, list value = pooling per layer
@@ -146,7 +147,7 @@ def get_params(argv='1'):
 
         # HYPER PARAMETERS
         nb_epochs=10000,  # Train for maximum epochs
-        nb_early_stop_patience = 50,  # if the validation loss have not improved for 50 epochs, then stop trainning 
+        nb_early_stop_patience = 30,  # if the validation loss have not improved for 50 epochs, then stop trainning 
         write_output_file_patience = 5,
         lr=1e-3,
 
@@ -283,7 +284,12 @@ def get_params(argv='1'):
         exit()
 
     
-    feature_label_resolution = int(params['label_hop_len_s'] // params['hop_len_s'])   
+    feature_label_resolution = int(params['label_hop_len_s'] // params['hop_len_s'])  
+    '''
+    data_in: (570, 7, 100, 128) feature_label_resolution is 0.05 / 0.01 = 5, 
+    data_out: (570, 20, 180) 
+    the feature_sequence_length is 100 = params['label_sequence_length'] * feature_label_resolution = 20 * 5 = 100 
+    '''
     '''f
     5 = 0.1 / 0.02 , 
     params['label_sequence_length'] = 50, first, output timestep is 50 that is 50 * 100 = 5000ms = 5s  ?
@@ -328,7 +334,7 @@ def get_params(argv='1'):
         params['classes_mapping'] = L3DAS21_sound_class_mapping
     elif params['dataset'] in ['STARSS2023']:
         params['classes_mapping'] = STARSS_sound_classes_mapping
-    params['unique_classes'] = 15
+    params['unique_classes'] = 13
     
     # print params 
     for key, value in params.items():

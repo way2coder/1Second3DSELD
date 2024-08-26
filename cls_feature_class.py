@@ -22,6 +22,8 @@ import time
 import torch
 import csv
 import pandas as pd
+import sys
+import random 
 
 def nCr(n, r):
     return math.factorial(n) // math.factorial(r) // math.factorial(n-r)
@@ -35,6 +37,7 @@ class FeatureClass:
         :param is_eval: if True, does not load dataset labels.
         """
         # Input directories
+        self._is_eval = is_eval
         self._feat_label_dir = params['feat_label_dir']
         self._dataset_dir = params['dataset_dir'] 
         self._dataset = params['dataset']
@@ -45,17 +48,18 @@ class FeatureClass:
 
         self._vid_dir = os.path.join(self._dataset_dir, 'video_{}'.format('eval' if is_eval else 'dev')) # 
         # Output directories
+        self._data_augmentation = params['data_augmentation']
         self._preprocessing_type = params['preprocessing_type']
-        self._label_dir = None
+
         self._feat_dir = None
         self._feat_dir_norm = None
+        
         self._vid_feat_dir = None
         # video feature extraction
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.pretrained_vid_model = VideoFeatures().to(self.device)  # 确保模型在正确的设备上
 
         # Local parameters
-        self._is_eval = is_eval
 
         self._fs = params['fs']  # 24000, 44100? 
         self._hop_len_s = params['hop_len_s']
@@ -118,6 +122,8 @@ class FeatureClass:
         self._classes_mapping = params['classes_mapping']
 
         self._filewise_frames = {}  # 文件名： 特征时间帧，以及label时间帧
+        self._label_dir = self.get_label_dir()  # feat_label_hnet\foa_dev_multi_accdoa_0.1_label
+        self._new_label_dir = self.get_new_label_dir()
 
     def get_frame_stats(self):
         # Initialized the self._filewise_frames = {}, what this dictionary stored is {'fold4_room23_mix001': [3035, 607]}
@@ -427,15 +433,40 @@ class FeatureClass:
         return label_mat
 
     # ------------------------------- EXTRACT AUDIO FEATURE AND PREPROCESS IT -------------------------------
+    def extract_file_feature_frequency_masking(self, _arg_in):
+        '''
+        random frequency masking from 2 strategies:
+            1. 1/4 of number of frequency bins masking on frequency axis, 1/4 of feature_sequence_length time masking on time axis, 10 times masking in one file
+            2. 1/8 of number of frequency bins masking on frequency axis, 1/2 of feature_sequence_length time masking on time axis, 10 times masking in one file 
+        '''
+        _file_cnt, _wav_path, _feat_path = _arg_in
+        file_name = f"{os.path.basename(_wav_path).split('.')[0]}.csv"
+        wav_filename = '{}.wav'.format(file_name.split('.')[0])
+        label_path = os.path.join(self._label_dir, '{}_frequency_masking.npy'.format(wav_filename.split('.')[0]))
 
-    def extract_file_feature(self, _arg_in): # 提取单个wav文件的特征
-        _file_cnt, _wav_path, _feat_path = _arg_in # (1, '../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix002.wav', '../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy')
-        if self._preprocessing_type == 'iv_7':
-            spect = self._get_spectrogram_for_file(_wav_path) #  (2235, 513, 4)
+        if os.path.exists(_feat_path) and os.path.exists(label_path):
+            print(f"Skipping {_feat_path} {label_path} as the .npy file of features and labels are already extracted.")
+        else:
+            spect = self._get_spectrogram_for_file(_wav_path) #  (2235, 513, 4) time, frequency, channel
+            number_frequency_bins = spect.shape[1]
+            feature_sequence_length = self._feature_sequence_length
+            print('the shape of spectrogram is ',spect.shape, ' and the data type of spect is ', spect.dtype)
+            # frequency masking on spectrogram, random 
+            for _ in range(10):  # 10 times grid masking  
+                # Strategy 1
+                if np.random.rand() > 0.5: 
+                    freq_mask_start = np.random.randint(0, number_frequency_bins // 4 * 3 )
+                    time_mask_start = np.random.randint(0, feature_sequence_length // 4 * 3)
+                    spect[time_mask_start:time_mask_start + feature_sequence_length // 4, freq_mask_start:freq_mask_start + number_frequency_bins // 4, :] = 0
+                # Strategy 2
+                else:
+                    freq_mask_start = np.random.randint(0, number_frequency_bins // 8 * 7)
+                    time_mask_start = np.random.randint(0, feature_sequence_length // 2)
+                    spect[time_mask_start:time_mask_start + feature_sequence_length // 2, freq_mask_start:freq_mask_start + number_frequency_bins // 8, :] = 0
+    
             # extract mel
             if not self._use_salsalite:
                 mel_spect = self._get_mel_spectrogram(spect) # get mel from spectrogram, (2235, 256)
- 
             feat = None
             if self._data_type == 'foa': 
                 # extract intensity vectors from spect 
@@ -451,22 +482,287 @@ class FeatureClass:
             else:
                 print('ERROR: Unknown dataset format {}'.format(self._data_type))
                 exit()
-        elif  self._preprocessing_type == 'spec_8':
-            spect = self._get_spectrogram_for_file(_wav_path) #  (2235, 513, 4)
-            feat = np.concatenate( (np.abs(spect), np.angle(spect)), axis=2)  
             
+            if feat is not None:
+                print('frequency masking feature {}: {}, {} has been generated '.format(_file_cnt, os.path.basename(_wav_path), feat.shape))
 
-        if feat is not None:
-            print('{}: {}, {}'.format(_file_cnt, os.path.basename(_wav_path), feat.shape))
+                np.save(_feat_path, feat)  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy
+            # extract corresponding label file of this wave file
 
-            np.save(_feat_path, feat)  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy
+            # self.get_frame_stats()
+
+    
+            print(f'Extracting label file of {_wav_path}:')
+            # if self._dataset in ['STARSS2023']:
+            #     for sub_folder in os.listdir(self._desc_dir):
+            #         loc_desc_folder = os.path.join(self._desc_dir, sub_folder)
+            print(f'new label dir :{self._new_label_dir}')
+            # for file_cnt, file_name in enumerate(os.listdir(self._new_label_dir)):   
+                # for each file(like fold4_room23_mix001.csv), process it into label hop frames according to the self._filewise_frames
+
+            nb_label_frames = self._filewise_frames[file_name.split('.')[0]][1]  # 607 
+            desc_file_polar = self.load_output_format_file(os.path.join(self._new_label_dir, file_name))  
+                #'../Dataset/STARSS2023\\metadata_dev\\dev-test-sony\\fold4_room23_mix001.csv'
+
+            desc_file = self.convert_output_format_polar_to_cartesian(desc_file_polar)    # len(desc_file)
+            if self._output_format == 'multi_accdoa': 
+                label_mat = self.get_adpit_labels_for_file(desc_file, nb_label_frames)
+            elif self._output_format == 'single_accdoa':
+                label_mat = self.get_cartesian_labels_for_file(desc_file, nb_label_frames)  # (607, 65)
+            elif self._output_format == 'polar':
+                label_mat = self.get_polar_labels_for_file(desc_file_polar, nb_label_frames) #             
+            np.save(label_path, label_mat)
+            print('{}: {}, {}'.format(_file_cnt, label_path, label_mat.shape))
+
+        
+
+    def extract_file_feature_channel_swapping(self, _arg_in):
+        '''
+        There are 4 channels in one seperate audio file, H1, H2, H3, H4 in order, and W, X, Y, Z corresponds to channel H1, H3, H4, H2.
+        And 16 transformations are used in this augmentation method, according to report[SOUND EVENT LOCALIZATION AND DETECTION USING FOA DOMAIN SPATIAL AUGMENTATION  Technical Report]
+        '''
+        _file_cnt, _wav_path, _feat_path = _arg_in
+        file_name = f"{os.path.basename(_wav_path).split('.')[0]}.csv"
+        wav_filename = '{}.wav'.format(file_name.split('.')[0])
+        label_path = os.path.join(self._label_dir, '{}_channel_swapping.npy'.format(wav_filename.split('.')[0]))
+
+        if os.path.exists(_feat_path) and os.path.exists(label_path):
+            print(f"Skipping {_feat_path} as features and labels are already extracted.")
+        else:
+            # load audio file, store the attribute of this file in self._filewise_frames
+            audio_in, fs = self._load_audio(_wav_path)  # ((1072800, 4), 24000)  (-1, 1) + 1e-8 
+            print(audio_in.shape)
+            nb_feat_frames = int(len(audio_in) / float(self._hop_len))   # 2235 = 1072800 / 480
+            nb_label_frames = int(len(audio_in) / float(self._label_hop_len)) # 447 = 1072800/2400
+            self._filewise_frames[os.path.basename(_wav_path).split('.')[0]] = [nb_feat_frames, nb_label_frames]
+
+            # read annotation file in csv format
+            print(f'Read label file of {_wav_path}:')
+            print(f'new label dir :{self._new_label_dir}')
+            file_name = f"{os.path.basename(_wav_path).split('.')[0]}.csv"
+            print(f'{file_name} has been read successfully')
+            wav_filename = '{}.wav'.format(file_name.split('.')[0])
+
+            nb_label_frames = self._filewise_frames[file_name.split('.')[0]][1]  # 607 
+            desc_file_path = os.path.join(self._new_label_dir, file_name)
+            # desc_file_polar = self.load_output_format_file(os.path.join(self._new_label_dir, file_name))  
+            #'../Dataset/STARSS2023\\metadata_dev\\dev-test-sony\\fold4_room23_mix001.csv'            
+            # Core function: random channel swapping on this audio file
+            audio_in, desc_file_polar = self._random_channel_swapping(audio_in, desc_file_path)
+            
+            spect = self._spectrogram(audio_in, nb_feat_frames)  # (2235, 513, 4) time, frequency, channel
+            feat = None
+            if not self._use_salsalite:
+                mel_spect = self._get_mel_spectrogram(spect) # get mel from spectrogram, (2235, 256)        
+            if self._data_type == 'foa': 
+                # extract intensity vectors from spect 
+                foa_iv = self._get_foa_intensity_vectors(spect) # 2235, 192
+                feat = np.concatenate((mel_spect, foa_iv), axis=-1) # 2235, 448 = 2235, 64*7 = T, 64, 7
+            elif self._data_type == 'mic':
+                if self._use_salsalite:
+                    feat = self._get_salsalite(spect)
+                else: 
+                    # extract gcc
+                    gcc = self._get_gcc(spect)
+                    feat = np.concatenate((mel_spect, gcc), axis=-1)
+            if feat is not None:
+                print('{}: {}, {}'.format(_file_cnt, os.path.basename(_wav_path), feat.shape))
+
+                np.save(_feat_path, feat)  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy
+
+            desc_file = self.convert_output_format_polar_to_cartesian(desc_file_polar)    # len(desc_file)
+        
+            if self._output_format == 'multi_accdoa': 
+                label_mat = self.get_adpit_labels_for_file(desc_file, nb_label_frames)
+            elif self._output_format == 'single_accdoa':
+                label_mat = self.get_cartesian_labels_for_file(desc_file, nb_label_frames)  # (607, 65)
+            elif self._output_format == 'polar':
+                label_mat = self.get_polar_labels_for_file(desc_file_polar, nb_label_frames) #             
+            np.save(label_path, label_mat)
+            print('{}: {}, {}'.format(_file_cnt, label_path, label_mat.shape))
+
+            if self._output_format == 'multi_accdoa': 
+                label_mat = self.get_adpit_labels_for_file(desc_file, nb_label_frames)
+            else:
+                print(f'{self._output_format} is not supported currently.')
+                sys.exit()
+    
+    def _random_channel_swapping(self, audio_in, desc_file_path):
+        '''
+        sub function of extract_file_feature_channel_swapping,
+
+        return: 
+            audio_in: ndarray format after random transformation
+            desc_file_polar: dict type, 
+        '''
+        # W = audio_in[:, 0]
+        # X = audio_in[:, 3]
+        # Y = audio_in[:, 1]
+        # Z = audio_in[:, 2]
+        transformation_idx = random.randint(1, 16)
+        
+        # print(type(desc_file), desc_file)
+        # print(desc_file)
+        # access elevation and azimuth from desc_file
+        if transformation_idx == 1:  # Rotate azi by -pi/2, Y->X, -X->Y
+            temp = audio_in[:, 3].copy()
+            audio_in[:, 3] = audio_in[:, 1]
+            audio_in[:, 1] = -temp
+        elif transformation_idx == 2:  # Original
+            pass
+        elif transformation_idx == 3:  # Rotate azi by +pi/2, X->Y, -Y->X
+            temp = audio_in[:, 1].copy()
+            audio_in[:, 1] = audio_in[:, 3]
+            audio_in[:, 3] = -temp
+
+        elif transformation_idx == 4:  # Rotate azi by +pi, -X -> X, -Y->Y
+            audio_in[:, 3] = - audio_in[:, 3]
+            audio_in[:, 1] = - audio_in[:, 1]
+        elif transformation_idx == 5:  #  Rotate azi by -pi/2, flip ele, Y->X, -X->Y, -Z->Z
+            temp = X = audio_in[:, 3].copy()
+            audio_in[:, 3] = audio_in[:, 1]
+            audio_in[:, 1] = -temp
+            audio_in[:, 2] = -audio_in[:, 2]
+
+        elif transformation_idx == 6:  # Azi remains unchanged,flip ele: -Z->Z
+            audio_in[:, 2] = - audio_in[:, 2]
+        elif transformation_idx == 7:  # Rotate azi by +pi/2 and flip ele:-Y->X, X->Y,-Z->Z
+            temp = audio_in[:, 3]
+            audio_in[:, 3] = -audio_in[:, 1]
+            audio_in[:, 1] = temp
+            audio_in[:, 2] = -audio_in[:, 2]        
+        elif transformation_idx == 8:  # Rotate azi by +pi and flip ele:-X->X, -Y->Y, -Z->Z
+            audio_in[:, 3] = - audio_in[:, 3]
+            audio_in[:, 2] = - audio_in[:, 2]
+            audio_in[:, 1] = - audio_in[:, 1]
+        elif transformation_idx == 9:  # Rotate -azi by -pi/2: Y->X, -X->Y
+            temp = audio_in[:, 3]
+            audio_in[:, 3] = audio_in[:, 1]
+            audio_in[:, 1] = -temp
+        elif transformation_idx == 10:  # Rotate -azi: -Y -> Y
+            audio_in[:, 1] = -audio_in[:, 1]
+        elif transformation_idx == 11:  # Rotate -azi by +pi/2:Y->X, X->Y
+            temp = audio_in[:, 3]
+            audio_in[:, 3] = audio_in[:, 1]
+            audio_in[:, 1] = temp 
+        elif transformation_idx == 12:  # Rotate -azi by +pi:-X->X
+            audio_in[:, 3] = -audio_in[:, 3]
+        elif transformation_idx == 13:  # Rotate -azi by -pi/2 and flip ele:Y->X,-X->Y
+            temp = audio_in[:, 3]
+            audio_in[:, 3] = audio_in[:, 1]
+            audio_in[:, 1] = -temp 
+        elif transformation_idx == 14:  # Rotate -azi and flip ele:-Y->Y, -Z->Z
+            audio_in[:, 1] = -audio_in[:, 1]
+            audio_in[:, 2] = -audio_in[:, 2]
+        elif transformation_idx == 15:  # Rotate -azi by +pi/2, flip ele:Y->X, X->Y, -Z->Z
+            temp = audio_in[:, 3]
+            audio_in[:, 3] = audio_in[:, 1]
+            audio_in[:, 1] = temp 
+            audio_in[:, 2] = -audio_in[:, 2]
+        elif transformation_idx == 16:  # Rotate -azi by pi and flip ele:-X->X, -Z->Z
+            audio_in[:, 3] = -audio_in[:, 3]
+            audio_in[:, 2] = -audio_in[:, 2]
+        
+        desc_file_polar = self.load_output_format_file_transformation(desc_file_path,transformation_idx)
+
+        return audio_in, desc_file_polar
+        
+
+    def extract_file_feature(self, _arg_in): # 提取单个wav文件的特征
+        _file_cnt, _wav_path, _feat_path = _arg_in
+        file_name = f"{os.path.basename(_wav_path).split('.')[0]}.csv"
+        print(file_name)
+        wav_filename = '{}.wav'.format(file_name.split('.')[0])
+        label_path = os.path.join(self._label_dir, '{}.npy'.format(wav_filename.split('.')[0]))
+
+        if os.path.exists(_feat_path) and os.path.exists(label_path):
+            print(f"Skipping {_feat_path} {label_path} as the .npy file of features and labels are already extracted.")
+
+        else:
+            spect = self._get_spectrogram_for_file(_wav_path) #  (2235, 513, 4)
+            # extract mel
+            if not self._use_salsalite:
+                mel_spect = self._get_mel_spectrogram(spect) # get mel from spectrogram, (2235, 256)
+
+            feat = None
+            if self._data_type == 'foa': 
+                # extract intensity vectors from spect 
+                foa_iv = self._get_foa_intensity_vectors(spect) # 2235, 192
+                feat = np.concatenate((mel_spect, foa_iv), axis=-1) # 2235, 448 = 2235, 64*7 = T, 64, 7
+            elif self._data_type == 'mic':
+                if self._use_salsalite:
+                    feat = self._get_salsalite(spect)
+                else: 
+                    # extract gcc
+                    gcc = self._get_gcc(spect)
+                    feat = np.concatenate((mel_spect, gcc), axis=-1)
+            else:
+                print('ERROR: Unknown dataset format {}'.format(self._data_type))
+                exit()
+            
+            # extract labels
+            
+            if feat is not None:
+                print('{}: {}, {}'.format(_file_cnt, os.path.basename(_wav_path), feat.shape))
+
+                np.save(_feat_path, feat)  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy
+            
+            # print(f'Extracting label file of {_wav_path}:')
+            # if self._dataset in ['STARSS2023']:
+            #     for sub_folder in os.listdir(self._desc_dir):
+            #         loc_desc_folder = os.path.join(self._desc_dir, sub_folder)
+            # print(f'new label dir :{self._new_label_dir}')
+            # for file_cnt, file_name in enumerate(os.listdir(self._new_label_dir)):   
+                # for each file(like fold4_room23_mix001.csv), process it into label hop frames according to the self._filewise_frames
+
+            nb_label_frames = self._filewise_frames[file_name.split('.')[0]][1]  # 607 
+            desc_file_polar = self.load_output_format_file(os.path.join(self._new_label_dir, file_name))  
+                #'../Dataset/STARSS2023\\metadata_dev\\dev-test-sony\\fold4_room23_mix001.csv'
+
+            desc_file = self.convert_output_format_polar_to_cartesian(desc_file_polar)    # len(desc_file)
+            if self._output_format == 'multi_accdoa': 
+                label_mat = self.get_adpit_labels_for_file(desc_file, nb_label_frames)
+            elif self._output_format == 'single_accdoa':
+                label_mat = self.get_cartesian_labels_for_file(desc_file, nb_label_frames)  # (607, 65)
+            elif self._output_format == 'polar':
+                label_mat = self.get_polar_labels_for_file(desc_file_polar, nb_label_frames) #             
+            np.save(label_path, label_mat)
+            print('{}: {}, {}'.format(_file_cnt, label_path, label_mat.shape))
+
+    # def extract_all_feature_augmentation(self):
+    #     if self._data_augmentation is not True:
+    #         return 
+    #     self._feat_dir = self.get_unnormalized_feat_dir()
+    #     create_folder(self._feat_dir)
+    #     start_s = time.time()
+    #     print('Extracting augmentation features:')
+    #     print('\t\taud_dir {}\n\t\tdesc_dir {}\n\t\tfeat_dir {}'.format(
+    #         self._aud_dir, self._desc_dir, self._feat_dir))  # ('../Dataset/STARSS2023\\foa_dev', '../Dataset/STARSS2023\\metadata_dev', '../Dataset/STARSS2023/feat_label_hnet/foa_dev_mel')
+    #     arg_list = [] 
+    #     for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
+    #         loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
+    #         for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
+    #             wav_filename = '{}.wav'.format(file_name.split('.')[0])
+    #             wav_path = os.path.join(loc_aud_folder, wav_filename) # ../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix001.wav
+    #             feat_path = os.path.join(self._feat_dir, '{}.npy'.format(wav_filename.split('.')[0]))  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix001.npy
+    #             # process only when the file is not exsit
+    #             feat_path_frequency_masking = os.path.join(self._feat_dir, f'{wav_filename.split('.')[0]}_frequency_masking.npy')
+    #             feat_path_channel_swapping = os.path.join(self._feat_dir, f'{wav_filename.split('.')[0]}_channel_swapping.npy')
+
+    #             if not os.path.exists(feat_path):
+    #                 self.extract_file_feature_frequency_masking((file_cnt, wav_path, feat_path)) # 提取单个wav文件的特征
+    #                 self.extract_file_feature_channel_swapping((file_cnt, wav_path, feat_path))
+    #             else:
+    #                 print(f"Skipping {feat_path} as features are already extracted.")
+    #             arg_list.append((file_cnt, wav_path, feat_path)) 
 
 
-
-    def extract_all_feature(self): 
+    def extract_all_features_and_labels(self): 
         # setting up folders
         self._feat_dir = self.get_unnormalized_feat_dir() # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_mel'
+        self.get_frame_stats() # some preprocessing procedure of label file generation
         create_folder(self._feat_dir)
+        create_folder(self._label_dir)
         from multiprocessing import Pool
         import time
         start_s = time.time()
@@ -475,36 +771,42 @@ class FeatureClass:
         print('\t\taud_dir {}\n\t\tdesc_dir {}\n\t\tfeat_dir {}'.format(
             self._aud_dir, self._desc_dir, self._feat_dir))  # ('../Dataset/STARSS2023\\foa_dev', '../Dataset/STARSS2023\\metadata_dev', '../Dataset/STARSS2023/feat_label_hnet/foa_dev_mel')
         arg_list = []    
-        if self._dataset in ['STARSS2023']:
-            for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
-                loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
-                for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
-                    wav_filename = '{}.wav'.format(file_name.split('.')[0])
-                    wav_path = os.path.join(loc_aud_folder, wav_filename) # ../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix001.wav
-                    feat_path = os.path.join(self._feat_dir, '{}.npy'.format(wav_filename.split('.')[0]))  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix001.npy
-                    # process only when the file is not exsit
-                    if not os.path.exists(feat_path):
-                        self.extract_file_feature((file_cnt, wav_path, feat_path)) # 提取单个wav文件的特征
-                    else:
-                        print(f"Skipping {feat_path} as features are already extracted.")
-                    arg_list.append((file_cnt, wav_path, feat_path)) 
+    # if self._dataset in ['STARSS2023']:
+        for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
+            loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
+            for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
+                wav_filename = '{}.wav'.format(file_name.split('.')[0])
+                wav_path = os.path.join(loc_aud_folder, wav_filename) # ../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix001.wav
+                feat_path = os.path.join(self._feat_dir, '{}.npy'.format(wav_filename.split('.')[0]))  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix001.npy
+                # process only when the file is not exsit
+                feat_path_frequency_masking = os.path.join(self._feat_dir, f'{wav_filename.split(".")[0]}_frequency_masking.npy')
+                feat_path_channel_swapping = os.path.join(self._feat_dir, f'{wav_filename.split(".")[0]}_channel_swapping.npy')
+                
+                self.extract_file_feature((file_cnt, wav_path, feat_path)) # 提取vanilla wav文件的特征
+                if self._data_augmentation is True :
+                    self.extract_file_feature_frequency_masking((file_cnt, wav_path, feat_path_frequency_masking)) # 提取单个wav文件的特征
+                    self.extract_file_feature_channel_swapping((file_cnt, wav_path, feat_path_channel_swapping)) # 提取单个wav文件的特征
+                else:
+                    print(f'this procedure donnot involve data augmentation ')  
+                
+                arg_list.append((file_cnt, wav_path, feat_path)) 
 
-        elif self._dataset in ['ANSYN', 'ASIRD', 'L3DAS21']:
-            for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
-                if 'wav' not in sub_folder: 
-                    continue 
-                ov_split = sub_folder.split('_')[1] + '_' + sub_folder.split('_')[2]
-                loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
-                for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
-                    wav_filename = '{}.wav'.format(file_name.split('.')[0])
-                    wav_path = os.path.join(loc_aud_folder, wav_filename) # ../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix001.wav
-                    feat_path = os.path.join(self._feat_dir, '{}_{}.npy'.format(wav_filename.split('.')[0], ov_split))  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix001.npy
-                    # process only when the file is not exsit
-                    if not os.path.exists(feat_path):
-                        self.extract_file_feature((file_cnt, wav_path, feat_path)) # 提取单个wav文件的特征
-                    else:
-                        print(f"Skipping {feat_path} as features are already extracted.")
-                    arg_list.append((file_cnt, wav_path, feat_path)) 
+        # elif self._dataset in ['ANSYN', 'ASIRD', 'L3DAS21']:
+        #     for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
+        #         if 'wav' not in sub_folder: 
+        #             continue 
+        #         ov_split = sub_folder.split('_')[1] + '_' + sub_folder.split('_')[2]
+        #         loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
+        #         for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
+        #             wav_filename = '{}.wav'.format(file_name.split('.')[0])
+        #             wav_path = os.path.join(loc_aud_folder, wav_filename) # ../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix001.wav
+        #             feat_path = os.path.join(self._feat_dir, '{}_{}.npy'.format(wav_filename.split('.')[0], ov_split))  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix001.npy
+        #             # process only when the file is not exsit
+        #             if not os.path.exists(feat_path):
+        #                 self.extract_file_feature((file_cnt, wav_path, feat_path)) # 提取单个wav文件的特征
+        #             else:
+        #                 print(f"Skipping {feat_path} as features are already extracted.")
+        #             arg_list.append((file_cnt, wav_path, feat_path)) 
 
 
         # with Pool() as pool:
@@ -576,6 +878,7 @@ class FeatureClass:
                     csv_df = self.generate_standard_label_df(loc_desc_folder, file_name)
                     new_csv_path = os.path.join(self._new_label_dir, file_name)
                     csv_df.to_csv(new_csv_path, index=False, header=False)
+                    print(f'{new_csv_path} has been generated')
 
         elif self._dataset in ['ANSYN', 'ASIRD', 'L3DAS21']:
             for sub_folder in os.listdir(self._dataset_dir):
@@ -598,7 +901,7 @@ class FeatureClass:
                     csv_df.to_csv(new_csv_path, index=False, header=False)
 
         
-
+    
     def extract_all_labels(self): 
         self.get_frame_stats() # 
         self._label_dir = self.get_label_dir()  # feat_label_hnet\foa_dev_multi_accdoa_0.1_label
@@ -728,14 +1031,22 @@ class FeatureClass:
             df = pd.read_csv(old_csv_file, header=None)
             expanded_rows = []
             for _, row in df.iterrows():
-                frame = row[0]
-                new_class_idx = self.get_class_index(row[1])
+                frame = int(row[0])
+                new_class_idx = int(row[1])
                 for i in range(frame_expansion_factor):
                     new_row = row.copy()
                     new_row[0] = frame * frame_expansion_factor + i -1
                     new_row[1] = new_class_idx
+                    
                     expanded_rows.append(new_row)
             expanded_rows = pd.DataFrame(expanded_rows)
+
+            expanded_rows[0] = expanded_rows[0].astype(int)
+            expanded_rows[1] = expanded_rows[1].astype(int)
+            expanded_rows[2] = expanded_rows[2].astype(int)
+            expanded_rows[3] = expanded_rows[3].astype(float)
+            expanded_rows[4] = expanded_rows[4].astype(float)
+            expanded_rows[5] = expanded_rows[5].astype(float)
         elif self._dataset in ['ANSYN', 'ASIRD']:
             
             column_names = ['sound_event_recording', 'start_time', 'end_time', 'ele', 'azi', 'dis']
@@ -790,11 +1101,66 @@ class FeatureClass:
                     expanded_rows.append([frame_idx, class_idx, source_id, azi, ele, dis])
             
             expanded_rows = pd.DataFrame(expanded_rows)
+        
         return expanded_rows    
 
-    def load_output_format_file(self, _output_format_file, cm2m=False):  # TODO: Reconsider cm2m conversion
+    def load_output_format_file(self, _output_format_file, cm2m=False):
         """
         Loads DCASE output format csv file and returns it in dictionary format
+
+        :param _output_format_file: DCASE output format CSV
+        :return: _output_dict: dictionary
+        """
+        _output_dict = {}
+        try:
+            _fid = open(_output_format_file, 'r')
+            _words = []  # For empty files
+
+            for _line in _fid:
+                try:
+                    _words = _line.strip().split(',')
+                    _frame_ind = int(_words[0])  # Convert frame index to int
+                    
+                    if _frame_ind not in _output_dict:
+                        _output_dict[_frame_ind] = []
+                    
+                    if len(_words) == 4:  # frame, class idx, polar coordinates(2)
+                        _output_dict[_frame_ind].append([
+                            int(_words[1]), 0, float(_words[2]), float(_words[3])
+                        ])
+                    elif len(_words) == 5:  # frame, class idx, source_id, polar coordinates(2)
+                        _output_dict[_frame_ind].append([
+                            int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4])
+                        ])
+                    elif len(_words) == 6:  # frame, class idx, source_id, polar coordinates(2), distance
+                        _output_dict[_frame_ind].append([
+                            int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4]),
+                            float(_words[5])/100 if cm2m else float(_words[5])
+                        ])
+                    elif len(_words) == 7:  # frame, class idx, source_id, cartesian coordinates(3), distance
+                        _output_dict[_frame_ind].append([
+                            int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4]), 
+                            float(_words[5]), float(_words[6])/100 if cm2m else float(_words[6])
+                        ])
+                except ValueError as e:
+                    print(f"Error processing line: {_line.strip()} in file {_output_format_file}")
+                    print(f"Details: {e}")
+                    continue  # Skip the current line and move to the next one
+            
+        except Exception as e:
+            print(f"Error opening or reading file {_output_format_file}: {e}")
+        finally:
+            _fid.close()
+        
+        if len(_words) == 7:
+            _output_dict = self.convert_output_format_cartesian_to_polar(_output_dict)
+        
+        return _output_dict
+
+
+    def load_output_format_file_transformation(self, _output_format_file, transformation_idx,cm2m=False):  # TODO: Reconsider cm2m conversion
+        """
+        Loads DCASE output format csv file and then process channel swapping according the transformation index, and returns it in dictionary format finnaly
 
         :param _output_format_file: DCASE output format CSV
         :return: _output_dict: dictionary
@@ -808,18 +1174,105 @@ class FeatureClass:
             _frame_ind = int(_words[0])
             if _frame_ind not in _output_dict:
                 _output_dict[_frame_ind] = []
-            if len(_words) == 4:  # frame, class idx,  polar coordinates(2) # no distance data, for example in eval pred
-                _output_dict[_frame_ind].append([int(_words[1]), 0, float(_words[2]), float(_words[3])])
-            if len(_words) == 5:  # frame, class idx, source_id, polar coordinates(2) # no distance data, for example in synthetic data fold 1 and 2
-                _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4])])
             if len(_words) == 6: # frame, class idx, source_id, polar coordinates(2), distance
-                _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4]), float(_words[5])/100 if cm2m else float(_words[5])])
-            elif len(_words) == 7: # frame, class idx, source_id, cartesian coordinates(3), distance
-                _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), float(_words[3]), float(_words[4]), float(_words[5]), float(_words[6])/100 if cm2m else float(_words[6])])
+                azi, ele = float(_words[3]), float(_words[4])
+                azi, ele = self.adjust_angles(azi, ele, transformation_idx)
+                _output_dict[_frame_ind].append([int(_words[1]), int(_words[2]), azi, ele, float(_words[5])/100 if cm2m else float(_words[5])])
+                #
+            else:
+                print(f'The length of {len(_words)} for output dict is not supported.')
+                sys.exit()
         _fid.close()
-        if len(_words) == 7:
-            _output_dict = self.convert_output_format_cartesian_to_polar(_output_dict)
         return _output_dict
+    
+
+    def adjust_angles(self, azi, ele, transformation_idx):
+        '''
+        Adjust angles according to transformation index
+        '''
+        # Normalize azimuth to [-180, 180]
+        def normalize_azi(angle):
+            if angle >= 180:
+                angle = -(360 - angle)
+            elif angle <= -180:
+                angle %= 360
+            return angle
+        
+        if transformation_idx == 1:  # Rotate azi by -90°, Y->X, -X->Y
+            azi -= 90
+            azi = normalize_azi(azi)
+            
+        elif transformation_idx == 2:  # Original, no changes
+            pass
+            
+        elif transformation_idx == 3:  # Rotate azi by +90°, X->Y, -Y->X
+            azi += 90
+            azi = normalize_azi(azi)
+        
+        elif transformation_idx == 4:  # Rotate azi by +180°, -X -> X, -Y->Y
+            azi += 180
+            azi = normalize_azi(azi)
+            
+        elif transformation_idx == 5:  # Rotate azi by -90°, flip ele, Y->X, -X->Y, -Z->Z
+            azi -= 90
+            azi = normalize_azi(azi)
+            ele = -ele
+            
+            
+        elif transformation_idx == 6:  # Azi remains unchanged, flip ele: -Z->Z
+            ele = -ele
+            
+            
+        elif transformation_idx == 7:  # Rotate azi by +90° and flip ele:-Y->X, X->Y,-Z->Z
+            azi += 90
+            azi = normalize_azi(azi)
+            ele = -ele
+            
+            
+        elif transformation_idx == 8:  # Rotate azi by +180° and flip ele:-X->X, -Y->Y, -Z->Z
+            azi += 180
+            azi = normalize_azi(azi)
+            ele = -ele
+            
+            
+        elif transformation_idx == 9:  # Rotate -azi by -90°: Y->X, -X->Y
+            azi = -azi - 90
+            azi = normalize_azi(azi)
+            
+        elif transformation_idx == 10:  # Rotate -azi: -Y -> Y
+            azi = -azi
+            
+        elif transformation_idx == 11:  # Rotate -azi by +90°:Y->X, X->Y
+            azi = -azi + 90
+            azi = normalize_azi(azi)
+            
+        elif transformation_idx == 12:  # Rotate -azi by +180°:-X->X
+            azi = -azi + 180
+            azi = normalize_azi(azi)
+            
+        elif transformation_idx == 13:  # Rotate -azi by -90° and flip ele:Y->X,-X->Y
+            azi = -azi - 90
+            azi = normalize_azi(azi)
+            ele = -ele
+            
+            
+        elif transformation_idx == 14:  # Rotate -azi and flip ele:-Y->Y, -Z->Z
+            azi = -azi
+            ele = -ele
+            
+            
+        elif transformation_idx == 15:  # Rotate -azi by +90°, flip ele:Y->X, X->Y, -Z->Z
+            azi = -azi + 90
+            azi = normalize_azi(azi)
+            ele = -ele
+            
+            
+        elif transformation_idx == 16:  # Rotate -azi by 180° and flip ele:-X->X, -Z->Z
+            azi = -azi + 180
+            azi = normalize_azi(azi)
+            ele = -ele
+            
+        return azi, ele
 
     def load_output_format_file_from_original_file(self, _output_format_file, cm2m=False):  # TODO: Reconsider cm2m conversion
         """
@@ -1150,14 +1603,14 @@ class FeatureClass:
     def get_normalized_feat_dir(self):
         return os.path.join(
             self._feat_label_dir,
-            '{}_{}_{}seq_length_{}bins_{}s_seglength_{}_norm'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins, int(self._segment_length),self._preprocessing_type)
+            "{}_{}_{}seq_length_{}bins_{}s_seglength_{}_{}norm".format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins, int(self._segment_length),self._preprocessing_type,'data_augmentation' if self._data_augmentation is True else 'without_data_augmentation')
         )
 
     def get_unnormalized_feat_dir(self):
         
         return os.path.join(
             self._feat_label_dir,
-            '{}_{}_{}seq_length_{}bins_{}s_seglength_{}'.format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins,int(self._segment_length),self._preprocessing_type)
+            "{}_{}_{}seq_length_{}bins_{}s_seglength_{}_{}".format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins,int(self._segment_length),self._preprocessing_type,'data_augmentation' if self._data_augmentation is True else 'without_data_augmentation')
         )
 
     def get_label_dir(self):
@@ -1166,14 +1619,14 @@ class FeatureClass:
         else:
             return os.path.join(
                 self._feat_label_dir,
-                f'{self._dataset_combination}_{self._output_format}_{int(self._label_hop_len_s*1000)}msres_label'               
+                f"{self._dataset_combination}_{self._output_format}_{int(self._label_hop_len_s*1000)}msres_label_without_classes_modifying_{'data_augmentation' if self._data_augmentation is True else 'without_data_augmentation'}"              
         )
 
     def get_new_label_dir(self):
 
         return os.path.join(
             self._dataset_dir,
-            f'{int(self._label_hop_len_s * 1000)}ms_labels_csv'               
+            f"{int(self._label_hop_len_s * 1000)}ms_labels_csv_without_classes_modifying"               
         )
 
     def get_normalized_wts_file(self):
@@ -1205,6 +1658,8 @@ def create_folder(folder_name):
     if not os.path.exists(folder_name):
         print('{} folder does not exist, creating it.'.format(folder_name))
         os.makedirs(folder_name)
+    else: 
+        print(f'{folder_name} do exist, so skep creating it')
 
 
 def delete_and_create_folder(folder_name):

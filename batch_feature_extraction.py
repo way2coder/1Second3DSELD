@@ -16,15 +16,17 @@ def main(argv):
 
     # ------------- Extract features and labels for development set -----------------------------
     dev_feat_cls = cls_feature_class.FeatureClass(params)
+    # # # Extract labels
+    # dev_feat_cls.generate_new_labels()  
+    # dev_feat_cls.extract_all_labels()
+    
     # breakpoint()
     # # Extract features and normalize them
     # breakpoint()
-    # dev_feat_cls.extract_all_feature()
-    # dev_feat_cls.preprocess_features()
+    dev_feat_cls.extract_all_features_and_labels()
+    # dev_feat_cls.extract_all_feature_augmentation()
+    dev_feat_cls.preprocess_features()
 
-    # # # Extract labels
-    dev_feat_cls.generate_new_labels()
-    dev_feat_cls.extract_all_labels()
 
     # # Extract visual features
     # if params['modality'] == 'audio_visual':
