@@ -6,13 +6,13 @@ This repository contains the code and resources for our paper:
 
 **"Short-Time Sound Event Localization and Detection Using Gammatone Filters and SCConv-Enhanced CST-Former"**
 
-In this work, we address the limitations of current Sound Event Localization and Detection (SELD) systems in handling short time segments (specifically 1-second windows). This is crucial for real-world applications requiring low-latency and fine temporal resolution. We establish a new baseline for SELD performance on 1-second segments.
+In this work, we address the limitations of current Sound Event Localization and Detection (SELD) systems in handling short time segments (specifically 1-second windows). This is crucial for real-world applications requiring low-latency and fine temporal resolution. We establish a new baseline for SELD performance on 1-second segments. 
 
 Our key contributions are:
 
 - **Establishing SELD performance on 1-second segments**: Providing a new benchmark for short-segment analysis in SELD tasks.
 - **Comparative analysis of filter banks**: Systematically comparing Bark, Mel, and Gammatone filter banks for audio feature extraction, demonstrating that Gammatone filters achieve the highest overall accuracy.
-- **Integration of SCConv modules into CST-Former**: Replacing convolutional components in the CST block with the SCConv module, yielding measurable F-score gains and enhancing spatial and channel feature representation.
+- **Integration of SCConv modules into CST-Former**: Replacing convolutional components in the CST block with the SCConv module, yielding measurable F-score gains and enhancing spatial and channel feature representation. The figure shows the model architecture. ![]()
 
 ## Code Outline
 
