@@ -32,6 +32,11 @@ parameters.py
 # 
 *.pkl
 *.txt
-
+conformer.py
+README111.md
+resnet_conformer.py
+run.py
+test_cstformer.py
+test_train_models.py
 #MacOs configuration
 .DS_Store
