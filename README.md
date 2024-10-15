@@ -1,10 +1,10 @@
-# Short-Time Sound Event Localization and Detection Using Gammatone Filters and SCConv-Enhanced CST-Former
+# Enhancing 1-Second SELD Performance with Filter Bank Analysis and SCConv Integration in CST-Former
 
 ## Introduction
 
 This repository contains the code and resources for our paper:
 
-**"Short-Time Sound Event Localization and Detection Using Gammatone Filters and SCConv-Enhanced CST-Former"**
+**"Enhancing 1-Second SELD Performance with Filter Bank Analysis and SCConv Integration in CST-Former"**
 
 In this work, we address the limitations of current Sound Event Localization and Detection (SELD) systems in handling short time segments (specifically 1-second windows). This is crucial for real-world applications requiring low-latency and fine temporal resolution. We establish a new baseline for SELD performance on 1-second segments. 
 
@@ -12,7 +12,7 @@ Our key contributions are:
 
 - **Establishing SELD performance on 1-second segments**: Providing a new benchmark for short-segment analysis in SELD tasks.
 - **Comparative analysis of filter banks**: Systematically comparing Bark, Mel, and Gammatone filter banks for audio feature extraction, demonstrating that Gammatone filters achieve the highest overall accuracy.
-- **Integration of SCConv modules into CST-Former**: Replacing convolutional components in the CST block with the SCConv module, yielding measurable F-score gains and enhancing spatial and channel feature representation. The figure shows the model architecture. ![]()
+- **Integration of SCConv modules into CST-Former**: Replacing convolutional components in the CST block with the SCConv module, yielding measurable F-score gains and enhancing spatial and channel feature representation. The figure shows the model architecture. ![model architecture](images/architecture.jpg)
 
 ## Code Outline
 
@@ -48,24 +48,24 @@ The repository is organized as follows:
 
 ### Prerequisites
 
-- **Operating System**: Linux recommended, didnot test on Windows.
-- **Python**: Version 3.8 or higher.
+- **Operating System**: Linux recommended, codes are not being tested on Windows.
+- **Python**: Version 3.11 or higher.
 - **Anaconda**: Recommended for environment management.
 
 ### Installation Steps
 
 1. **Clone the Repository**
 
-   ```bash
-   git clone https://github.com/yourusername/short-time-seld.git
+   ```bash 
+   git clone https://github.com/yourusername/short-time-seld.git #
    cd short-time-seld
    ```
 
 2. **Create a Conda Environment**
 
    ```bash
-   conda create -n seld_env python=3.8
-   conda activate seld_env
+   conda create -n seld python=3.11
+   conda activate seld
    ```
 
 3. **Install Dependencies**
@@ -82,127 +82,73 @@ The repository is organized as follows:
    conda install --file requirements.txt
    ```
 
-4. **Set Up Additional Tools**
-
-   Install any additional tools or libraries if necessary. For example:
-
-   ```bash
-   # Placeholder for additional setup
-   ```
-
 ## Data Preprocessing
 
 ### Dataset
 
-We use the [DCASE 2021 Task 3](https://dcase.community/challenge2021/task-sound-event-localization-and-detection) dataset for our experiments.
+We use the [[DCASE2024 Task 3] Synthetic SELD mixtures for baseline training](https://zenodo.org/records/10932241) dataset for our experiments.
 
 ### Steps
 
 1. **Download the Dataset**
 
-   Download the development and evaluation datasets from the DCASE challenge website and place them in the `data/` directory.
+   Download the development and evaluation datasets from the DCASE challenge website and place them in the `data/` directory. Set the parameter: datasets_dir_dic to add path for your dataset in `parameters.py`, so does the  parameter:feat_label_dir_dic which saves all your labels.npy and features.npy. 
 
    ```bash
    mkdir data
    # Instructions or script to download the dataset
    ```
 
-2. **Extract Audio Features**
+2. **Generate new labels with fine resolution and Extract Audio Features**
 
-   Run the preprocessing script to extract features using the desired filter bank:
-
-   ```bash
-   python src/data/preprocess_data.py --filter_bank gammatone --segment_length 1
-   ```
-
-   Parameters:
-
-   - `--filter_bank`: Choose from `bark`, `mel`, or `gammatone`.
-   - `--segment_length`: Set the time segment length in seconds (default is `1`).
-
-3. **Generate Labels**
-
-   Prepare the labels for training:
+   Run the preprocessing script to extract features using your argv number, for example:
 
    ```bash
-   python src/data/generate_labels.py --segment_length 1
+   python batch_feature_extraction.py 1
    ```
+   Typically, this will generate about 50G feature files for each filter when using default settings.
 
-4. **Data Augmentation (Optional)**
+3. **Data Augmentation (Optional)**
 
-   Apply data augmentation techniques if needed:
-
-   ```bash
-   # Placeholder for data augmentation commands
-   ```
+   Apply data augmentation techniques if needed, unfortunately we do not implement augmetation.
 
 ## Training and Inference
 
 ### Training the Model
 
-Train the SELD model with the SCConv-enhanced CST-Former architecture:
+Train different models:
 
 ```bash
-python src/train.py --config configs/scconv_cstformer.yaml
+python train_torch_vanilla.py 1  
 ```
 
-Parameters:
 
-- `--config`: Path to the configuration file containing training parameters.
+### Monitoring Training and Test 
 
-### Monitoring Training
+The training and test metrics and losses will be put into the `results_audio/` folder, and each unique setting in `parameter.py` will generate a unique hash path to your process. So does the checkpoints to the `models_audio/`. You can also use TensorBoard to monitor training progress.
 
-Use TensorBoard to monitor training progress:
+## Acknowledgements 
+Most of our codes come from the DCASE2024 baseline system[1], and the CST-former model code come from the official implementation of CST-former[2]. And the code of SCConv directly comes from the unoffical implementation[3].
 
-```bash
-tensorboard --logdir runs/
-```
-
-### Inference
-
-Perform inference on the test set:
-
-```bash
-python src/inference.py --checkpoint checkpoints/best_model.pth --config configs/scconv_cstformer.yaml
-```
-
-Parameters:
-
-- `--checkpoint`: Path to the trained model checkpoint.
-- `--config`: Configuration file used during training.
-
-### Evaluation
-
-Evaluate the model's performance using standard SELD metrics:
-
-```bash
-python src/evaluate.py --predictions outputs/predictions.csv --ground_truth data/labels/test_labels.csv
-```
-
-Parameters:
-
-- `--predictions`: Model predictions output file.
-- `--ground_truth`: Ground truth labels for the test set.
 
 ## References
 
-- [1] Adavanne, S., Politis, A., & Virtanen, T. (2018). "Sound Event Detection and Localization in Multiple Directions". *ICASSP 2018*.
-- [2] Mazzon, A., et al. (2021). "Multi-ACCDOA: Localizing and Detecting Overlapping Sounds from the Same Direction with Deep Learning". *ICASSP 2021*.
-- [3] Zhang, X., et al. (2021). "CST-Former: Channel-Spectro-Temporal Transformer for Acoustic Modeling". *Interspeech 2021*.
-- [4] Yang, Y., et al. (2021). "G-SELD: A SELD Model Based on Gammatone Filters and CNNs". *DCASE 2021 Workshop*.
-- [5] Wu, Q., et al. (2021). "SCConv: Efficient Convolutional Neural Networks with Spatial and Channel Modulation". *arXiv preprint arXiv:2103.07659*.
+- [1] https://github.com/partha2409/DCASE2024_seld_baseline
+- [2] Shul Y, Choi J W. CST-Former: Transformer with Channel-Spectro-Temporal Attention for Sound Event Localization and Detection[C]//ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP). IEEE, 2024: 8686-8690.
+- [3] https://github.com/cheng-haha/ScConv
+
 
 ## Contact
 
 For any questions or assistance, please contact:
 
-- **Name**: [Your Name]
-- **Email**: [your.email@example.com]
+- **Name**: Silhouette
+- **Email**: [zzh953928832@gmail.com]
 
 ---
 
-*Note: Sections marked as placeholders should be filled in with the appropriate code or instructions.*
 
-# Short-Time Sound Event Localization and Detection Using Gammatone Filters and SCConv-Enhanced CST-Former
+
+# Enhancing 1-Second SELD Performance with Filter Bank Analysis and SCConv Integration in CST-Former
 
 Thank you for your interest in our work!

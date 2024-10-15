@@ -32,3 +32,6 @@ parameters.py
 # 
 *.pkl
 *.txt
+
+#MacOs configuration
+.DS_Store
