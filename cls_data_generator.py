@@ -10,10 +10,11 @@ from IPython import embed
 from collections import deque
 import random
 import parameters
+import pickle
 
 class DataGenerator(object):
     def __init__(
-            self, params, split=1, shuffle=True, per_file=False, is_eval=False
+            self, params, split=1, shuffle=True, per_file=False, is_eval=False, mode = 'validation'
     ):
         '''
         per_file : decide whether one file will be trained in batch 
@@ -21,7 +22,8 @@ class DataGenerator(object):
         self._per_file = per_file   
         self._is_eval = is_eval
         self._splits = np.array(split)    #[1 ,2, 3] actually is [3]
-        self._batch_size = params['batch_size'] # 128    
+        self._batch_size = params['batch_size'] # 128   
+        self._data_augmentation= params['data_augmentation'] 
         self._feature_seq_len = params['feature_sequence_length'] #  250 params['feature_sequence_length'] = params['label_sequence_length'] * feature_label_resolution # 50 * 5 
         # feature_label_resolution
         # self.hop
@@ -34,8 +36,9 @@ class DataGenerator(object):
         self._output_format = params['output_format']
 
         self._filenames_list = list()
+        self._sound_scaper = params['sound_scaper']
         self._nb_frames_file = 0     # Using a fixed number of frames in feat files. Updated in _get_label_filenames_sizes()
-        self._nb_mel_bins = self._feat_cls.get_nb_mel_bins() # 62 
+        self._nb_mel_bins = self._feat_cls.get_nb_mel_bins() # 64 
         self._nb_ch = None
         self._label_len = None  # total length of label - DOA + SED
         self._doa_len = None    # DOA label length 
@@ -50,10 +53,12 @@ class DataGenerator(object):
             self._vid_feat_dir = self._feat_cls.get_vid_feat_dir()
             self._circ_buf_vid_feat = None
 
+        self._mode = mode
         self._get_filenames_list_and_feat_label_sizes()
-
+        
+        print(f'---------------------info of datagenerator, splits{self._splits}----------------')
         print(
-            '\tDatagen_mode: {}, nb_files: {}, nb_classes:{}\n'
+            '\tDatagen_mode: {}, nb_files/len of self._filenames_list: {}, nb_classes:{}\n'
             '\tnb_frames_file: {}, feat_len: {}, nb_ch: {}, label_len:{}\n'.format(
                 'eval' if self._is_eval else 'dev', len(self._filenames_list),  self._nb_classes,
                 self._nb_frames_file, self._nb_mel_bins, self._nb_ch, self._label_len
@@ -63,15 +68,16 @@ class DataGenerator(object):
         print(
             '\tDataset: {}, split: {}\n'
             '\tbatch_size: {}, feat_seq_len: {}, label_seq_len: {}, shuffle: {}\n'
-            '\tTotal batches in dataset: {}\n'
+            '\tTotal batches in splits{} dataset: {}\n'
             '\tlabel_dir: {}\n '
             '\tfeat_dir: {}\n'.format(
                 params['dataset'], split,
                 self._batch_size, self._feature_seq_len, self._label_seq_len, self._shuffle,
-                self._nb_total_batches,
+                self._splits, self._nb_total_batches,
                 self._label_dir, self._feat_dir
             )
         )
+        print('--------------------------------------------------------')
 
     def get_data_sizes(self):
         feat_shape = (self._batch_size, self._nb_ch, self._feature_seq_len, self._nb_mel_bins)
@@ -91,19 +97,36 @@ class DataGenerator(object):
     def get_total_batches_in_data(self):
         return self._nb_total_batches
 
+
     def _get_filenames_list_and_feat_label_sizes(self):
         print('Computing some stats about the dataset')   
+        
+        max_frames, total_frames, temp_feat = -1, 0, [] 
 
-        max_frames, total_frames, temp_feat = -1, 0, []   
-        for filename in os.listdir(self._feat_dir):  #'../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm'
-            if filename[4].isdigit() and int(filename[4]) in self._splits:  # check which split the file belongs to fold3/ fold4
-                if self._modality == 'audio' or (hasattr(self, '_vid_feat_dir') and os.path.exists(os.path.join(self._vid_feat_dir, filename))):   # some audio files do not have corresponding videos. Ignore them.
-                    self._filenames_list.append(filename)
-                    temp_feat = np.load(os.path.join(self._feat_dir, filename))  # load npy from ''../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm\\fold3_room12_mix001.npy'
-                    total_frames += (temp_feat.shape[0] - (temp_feat.shape[0] % self._feature_seq_len)) # temp_feat (12664, 448) % 250(input size for neural network)
-                    # 12664 - (122664 % 250 = 164 ) = 12500 
-                    if temp_feat.shape[0]>max_frames:
-                        max_frames = temp_feat.shape[0] # restore the max frame for the spectrum 
+        if self._mode == 'test': 
+            for filename in os.listdir(self._feat_dir):  #'../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm'
+                if filename[4].isdigit() and int(filename[4]) in self._splits:  # check which split the file belongs to fold3/ fold4
+                    
+                    if (self._sound_scaper is False and filename[10].isdigit() is False) or (self._data_augmentation is False and filename.split('.')[0][-1].isalpha()): # skip the sound scape generated audio file if seld._sound_scape is false
+                        continue
+                    if self._modality == 'audio' or (hasattr(self, '_vid_feat_dir') and os.path.exists(os.path.join(self._vid_feat_dir, filename))):   # some audio files do not have corresponding videos. Ignore them.
+                        self._filenames_list.append(filename)
+                        temp_feat = np.load(os.path.join(self._feat_dir, filename))  # load npy from ''../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm\\fold3_room12_mix001.npy'
+                        total_frames += (temp_feat.shape[0] - (temp_feat.shape[0] % self._feature_seq_len)) # temp_feat (12664, 448) % 250(input size for neural network)
+                        # 12664 - (122664 % 250 = 164 ) = 12500 
+                        if temp_feat.shape[0]>max_frames:
+                            max_frames = temp_feat.shape[0] # restore the max frame for the spectrum 
+        elif self._mode == 'validation':
+            
+            file_path = os.path.join(self._feat_dir, 'random_validation_file')
+            with open(file_path, 'rb') as file:
+                self._filenames_list = pickle.load(file)
+            for filename in self._filenames_list:
+                temp_feat = np.load(os.path.join(self._feat_dir, filename))  # load npy from ''../Dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_norm\\fold3_room12_mix001.npy'
+                total_frames += (temp_feat.shape[0] - (temp_feat.shape[0] % self._feature_seq_len)) # temp_feat (12664, 448) % 250(input size for neural network)
+                # 12664 - (122664 % 250 = 164 ) = 12500 
+                if temp_feat.shape[0]>max_frames:
+                    max_frames = temp_feat.shape[0] # restore the max frame for the spectrum 
 
         if len(temp_feat)!=0:
             self._nb_frames_file = max_frames if self._per_file else temp_feat.shape[0]  # 10693, 19430
@@ -112,9 +135,9 @@ class DataGenerator(object):
             print('Loading features failed')
             exit()
 
-        if not self._is_eval:
-            temp_label = np.load(os.path.join(self._label_dir, self._filenames_list[0]))
-            # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_multi_accdoa_label\\fold3_room12_mix001.npy'
+        if not self._is_eval: 
+            temp_label = np.load(os.path.join(self._label_dir, self._filenames_list[0]))  # load a random label file from label dir  
+            # '../Dataset/STARSS2023/feat_label_hnet/foa_dev_multi_accdoa_label\\fold3_room12_mix001.npy' 
             # (2532, 6, 5, 13)
             if self._output_format == 'multi_accdoa':
                 self._num_track_dummy = temp_label.shape[-3]
@@ -384,11 +407,12 @@ class DataGenerator(object):
 
 def main(argv):
     task_id = '1' if len(argv) < 2 else argv[1]
+    # breakpoint()
     params = parameters.get_params(task_id)
-    test_dataloader = DataGenerator(params=params, split=[3], shuffle=True)
+    test_dataloader = DataGenerator(params=params, split=[4], shuffle=True)
     i = 0
-    for data in test_dataloader.generate():
-        i += 1   # feat (128, 7, 250, 64) (barchsize, channel, time, freq) label (128, 50, 6, 5, 13)   (barchsize, time, multi, (xyz,sed,dis), class)
+    # for data in test_dataloader.generate():
+        # i += 1   # feat (128, 7, 250, 64) (barchsize, channel, time, freq) label (128, 50, 6, 5, 13)   (barchsize, time, multi, (xyz,sed,dis), class)
 
 if __name__ == '__main__':
     main(sys.argv)

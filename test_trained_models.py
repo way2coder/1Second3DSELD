@@ -28,7 +28,7 @@ from cls_dataset import *
 import torch
 from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter()
-from torch_run import test_epoch
+from deprecated.torch_run import test_epoch
 
 
 
@@ -134,7 +134,7 @@ def main(argv):
             )
             test_dataset = SELDDataset(params, 'test')
             test_loader = DataLoader(test_dataset, batch_size=params['batch_size'], shuffle=True) 
-            score_obj = ComputeSELDResults(params)  #cls_compute_seld_results
+            score_obj = ComputeSELDResults(params,test_dataset._feat_cls._new_label_dir)  #cls_compute_seld_results
             # Dump results in DCASE output format for calculating final scores  os.path.join(params['dcase_output_dir'], f'{unique_hash_str}',f'{unique_name}_test')
             dcase_output_test_folder = os.path.join(results_folder, f'test_model_{os.path.basename(model_name)}')
             cls_feature_class.delete_and_create_folder(dcase_output_test_folder)

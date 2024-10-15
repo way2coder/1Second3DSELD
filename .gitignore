@@ -16,7 +16,7 @@ results_audio/
 # explore data property
 ExploreData/
 Results/
-
+deprecated/
 
 
 # visualization file 
@@ -27,3 +27,8 @@ profile.svg
 # bash file
 *.sh
 parameters.py
+
+
+# 
+*.pkl
+*.txt

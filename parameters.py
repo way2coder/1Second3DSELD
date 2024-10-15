@@ -75,32 +75,33 @@ def get_params(argv='1'):
     print("SET: {}".format(argv))
     # ########### default parameters ##############
     
-    params = dict(
+    params = dict( 
         quick_test=True,  # To do quick test. Trains/test on small subset of dataset, and # of epochs
-        finetune_mode=True,  # Finetune on existing model, requires the pretrained model path set - pretrained_model_weights
+        finetune_mode=False,  # Finetune on existing model, requires the pretrained model path set - pretrained_model_weights
         pretrained_model_weights='./models_audio/3_1_dev_split0_multi_accdoa_STARSS2023_SeldModel.h5',
         datasets_dir_dic = {'ANSYN': '../Dataset/ANSYN', 'ASIRD': '../Dataset/ASIRD', 'L3DAS21': '../Dataset/L3DAS21', 'STARSS2023': '../../dataset/STARSS2023'},
         feat_label_dir_dic = {'ANSYN': '../Dataset/ANSYN/feat_label_hnet', 'ASIRD': '../Dataset/ASIRD/feat_label_hnet', 'L3DAS21': '../Dataset/L3DAS21/feat_label_hnet', 'STARSS2023': '../../dataset/STARSS2023/feat_label_hnet'},
         fs_dic = {'ANSYN': 44100, 'ASIRD': 44100, 'L3DAS21': 32000, 'STARSS2023':24000},
         max_audio_len_s_dic = {'ANSYN': 30 , 'ASIRD': 30, 'L3DAS21': 60, 'STARSS2023':60},
-
+        subset = False,
         # INPUT PATH
         # dataset_dir='DCASE2020_SELD_dataset/',  # Base folder containing the foa/mic and metadata folders,
         
     
         
-
         model_dir='models',  # Dumps the trained models and training curves in this folder
         dcase_output_dir='results',  # recording-wise results are dumped in this path.
 
         # DATASET LOADING PARAMETERS
         mode='dev',  # 'dev' - development or 'eval' - evaluation dataset
+        synthetic = False, 
         data_type ='foa',  # 'foa' - ambisonic or 'mic' - microphone signals
         dataset = 'ANSYN', # ANSYN, ASIRD, L3DAS21, STARSS2023, and this need to be a string 
 
         # FEATURE PARAMS
         preprocessing_type = 'iv_7', # 'spec_8'
-        data_augmentation = True, # if this variarble is set to be true, then the function 'dev_feat_cls.extract_all_feature()' will generate all these features
+        data_augmentation = False, # if this variarble is set to be true, then the function 'dev_feat_cls.extract_all_feature()' will generate all these features
+        sound_scaper = False,
         filter = 'gammatone', # 'mel' / 'gammatone' / 'bark'
         hop_len_s=0.005, # ??
         label_hop_len_s=0.05,  # resolution in annotation file
@@ -113,11 +114,27 @@ def get_params(argv='1'):
         fmax_doa_salsalite=2000,
         fmax_spectra_salsalite=9000,
 
+        # CSTmodel 
+        baseline = True,
+        encoder = 'conv',           # ['conv', 'ResNet', 'SENet']
+        LinearLayer = False,        # Linear Layer right after attention layers (usually not used/employed in baseline model)
+        FreqAtten = False,          # Use of Divided Spectro-Temporal Attention (DST Attention)
+        ChAtten_DCA = False,        # Use of Divided Channel-S-T Attention (CST Attention)
+        ChAtten_ULE = False,        # Use of Divided C-S-T attention with Unfold (Unfolded CST attention)
+        CMT_block = False,          # Use of LPU & IRFNN
+        CMT_split = False,          # Apply LPU & IRFNN on S, T attention layers independently
+        t_pooling_loc = 'front',                           # False - Single-ACCDOA or True - Multi-ACCDOA            # Required for Multi-ACCDOA only. Threshold of unification for inference in degrees.
+        self_attn=True,
+
+
+
+        fnn_size=128,  # FNN contents, length of list = number of layers, list value = number of nodes
 
         # MODEL TYPE
         modality='audio',  # 'audio' or 'audio_visual'
         
         # OUTPUT FORMAT 
+        per_file = True,
         multi_accdoa=True,  # False - Single-ACCDOA or True - Multi-ACCDOA
         output_format = 'multi_accdoa', # 'single_accdoa', 'multi_accdoa'(adpit), polar
 
@@ -125,29 +142,38 @@ def get_params(argv='1'):
         
         seperate_polar = False, # Required for output_format = polar only, decide wether the azimuth and elevation should be pridicted seperatedly.
 
-
+        # conformer layer
+        cf_num_heads = 4,      #TODO
+        cf_ffn_dim = 512,
+        cf_num_layers = 2,
+        cf_depthwise_conv_kernel_size = 31,
+        cf_num_cfs = 2,
 
         # DNN MODEL PARAMETERS
         model = 'SeldModel',   # model will be trained, default: SeldModel, SeldConModel
         label_sequence_length=50,    # Feature sequence length 
         batch_size=256,              # Batch size
         dropout_rate=0.05,           # Dropout rate, constant for all layers
-        nb_cnn2d_filt=64,           # Number of CNN nodes, constant for each layer
+        nb_cnn2d_filt=64,           # Number of CNN nodes, constant for each layer TODO
         f_pool_size=[4, 4, 2],      # CNN frequency pooling, length of list = number of CNN layers, list value = pooling per layer
 
+        scconv = False,
+        mhsa = False, 
+        residual_connections = False,
         nb_heads=8,
         nb_self_attn_layers=2,
         nb_transformer_layers=2,
 
+        positoncal_encoding = False,
+        learnable_pe = False, 
         nb_rnn_layers=2,
-        rnn_size=128,
+        rnn_size=256,
 
         nb_fnn_layers=1,
-        fnn_size=128,  # FNN contents, length of list = number of layers, list value = number of nodes
-
+    
         # HYPER PARAMETERS
-        nb_epochs=10000,  # Train for maximum epochs
-        nb_early_stop_patience = 30,  # if the validation loss have not improved for 50 epochs, then stop trainning 
+        nb_epochs=1000,  # Train for maximum epochs
+        nb_early_stop_patience = 50,  # if the validation loss have not improved for 50 epochs, then stop trainning 
         write_output_file_patience = 5,
         lr=1e-3,
 
@@ -160,125 +186,1065 @@ def get_params(argv='1'):
         lad_reldist_thresh=float('1'),  # Relative distance error threshold for computing the detection metrics
 
         # time used to generate hash value of results folder
-        current_time = datetime.now().isoformat() 
     )   
     
     # ########### User defined parameters ##############
+    params['feature_label_resolution'] = int(params['label_hop_len_s'] // params['hop_len_s']) 
     if argv == '1':
-        print("USING DEFAULT PARAMETERS\n")
-
-    elif argv == '2':
-        print("FOA + ACCDOA\n")
+        print("Generate intermediate audio file\n")  #SELD2024bark300:99
         params['quick_test'] = False
         params['data_type'] = 'foa'
-        params['multi_accdoa'] = False
-        params['output_format'] = 'single_accdoa'
-        params['finetune_mode'] = False
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['filter'] = 'bark'
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 2048
+        # params['lr'] /= 2
+        params['per_file'] = True
+        params['model'] = 'VanillaSeldModel'
+        # params['subset'] =  True
+        params['rnn_size'] =128
+    
+    elif argv == '110':
+        print("Generate intermediate audio file\n")  #SELD2024, bark300:99
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['filter'] = 'bark'
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =100 # 20
+        params['batch_size'] = 256 
+        # params['lr'] /= 2
+        params['per_file'] = True
+        params['model'] = 'VanillaSeldModel'
+        # params['subset'] =  True
+        params['rnn_size'] =128
+
+    elif argv == '111':
+        print("Generate intermediate audio file\n")  #SELD2024, bark300:99
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['filter'] = 'bark'
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =40 # 20
+        params['batch_size'] = 256 
+        # params['lr'] /= 2
+        params['per_file'] = True
+        params['model'] = 'VanillaSeldModel'
+        # params['subset'] =  True
+        params['rnn_size'] =128
+
+    elif argv == '12':
+        print("Generate intermediate audio file\n")  #GSELD2024 TCN
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['filter'] = 'bark'
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+        params['per_file'] = True
+        params['model'] = 'GSELD'
+        params['subset'] =  True
+        params['rnn_size'] =128
+
+        params['tcn_channels'] = [20, 64, 128, 64, 20]
+        params['tcn_kernel_size'] = 3
+    
+    elif argv == '121':
+        print("Generate intermediate audio file\n")  #GSELD2024 TCN 20, 32, 64, 32, 20]
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['filter'] = 'bark'
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+        params['per_file'] = True
+        params['model'] = 'GSELD'
+        params['subset'] =  True
+        params['rnn_size'] =128
+
+        params['tcn_channels'] = [20, 32, 64, 32, 20]
+        params['tcn_kernel_size'] = 3
+
+    elif argv == '122':
+        print("Generate intermediate audio file\n")  #GSELD2024 TCN 20, 32, 64, 32, 20] 4
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['filter'] = 'bark'
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+        params['per_file'] = True
+        params['model'] = 'GSELD'
+        params['subset'] =  True
+        params['rnn_size'] =128
+
+        params['tcn_channels'] = [20, 32, 64, 32, 20]
+        params['tcn_kernel_size'] = 4
+
+    elif argv == '13':
+        print("Generate intermediate audio file\n")
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['per_file'] = True
+        # params['subset'] =  True
+
+        params['model'] = 'CST_former'
+        params['FreqAtten'] = True
+        params['ChAtten_ULE'] = True
+        params['CMT_block'] = True
+        params["f_pool_size"] = [1,2,2] 
+        params['t_pool_size'] = [1,1, params['feature_label_resolution']]
+
+    elif argv == '14':
+        print("Generate intermediate audio file\n")
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['per_file'] = True
+        # params['subset'] =  True
+        params['filter'] = 'gammatone'
+
+        params['model'] = 'CST_former'
+        params['FreqAtten'] = True
+        params['ChAtten_ULE'] = True
+        params['CMT_block'] = True
+        params["f_pool_size"] = [1,2,2] 
+        params['t_pool_size'] = [1,1, params['feature_label_resolution']]
+
+        params['conv_type'] = 'scconv' # 'scconv' 'srucru' 'origin'
+
+
+    elif argv == '15':
+        print("Generate intermediate audio file\n")
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['per_file'] = True
+        # params['subset'] =  True
+        params['filter'] = 'gammatone'
+
+        params['model'] = 'CST_former'
+        params['FreqAtten'] = True
+        params['ChAtten_ULE'] = True
+        params['CMT_block'] = True
+        params["f_pool_size"] = [1,2,2] 
+        params['t_pool_size'] = [1,1, params['feature_label_resolution']]
+
+        params['conv_type'] = 'origin' # 'scconv' 'srucru' 'origin'
+    elif argv == '16':
+        print("Generate intermediate audio file\n")
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['per_file'] = True
+        # params['subset'] =  True
+        params['filter'] = 'bark'
+
+        params['model'] = 'CST_former'
+        params['FreqAtten'] = True
+        params['ChAtten_ULE'] = True
+        params['CMT_block'] = True
+        params["f_pool_size"] = [1,2,2] 
+        params['t_pool_size'] = [1,1, params['feature_label_resolution']]
+
+        params['conv_type'] = 'origin' # 'scconv' 'srucru' 'origin'
+
+
+        
+    elif argv == '2':
+        print("Generate intermediate audio file\n")
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 256
+        params['lr'] /= 4
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformerEdit'
+
+        params['use_efficientnet'] = True
+        params['use_se_block'] = False
+
+
 
     elif argv == '21':
-        print("FOA + single ACCDOA\n + mel")
+        print("Generate intermediate audio file\n")
         params['quick_test'] = False
-        params['filter'] = 'mel'
         params['data_type'] = 'foa'
-        # params['multi_accdoa'] = False 
-        params['output_format'] = 'polar'
-        params['finetune_mode'] = False
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        # params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  False
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 128 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_efficientnet'] = False
+        params['use_se_block'] = False
+
     
+    elif argv == '211':
+        print("Seld conformer with weights initiate\n")
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        # params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 128 #128
+
+        params['init_weights'] = True
+        params['use_efficientnet'] = False
+        params['use_se_block'] = False
+
+    elif argv == '2111':
+        print("Generate intermediate audio file\n")
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 256 #128
+
+    # elif argv == '2112':
+    #     print("Generate intermediate audio file\n")
+    #     params['quick_test'] = False
+    #     params['data_type'] = 'foa'
+    #     params['multi_accdoa'] = True
+    #     params['data_augmentation'] = False 
+    #     params['synthetic'] = True 
+    #     params['output_format'] = 'multi_accdoa' 
+    #     params['hop_len_s'] = 0.01   
+    #     params['label_hop_len_s'] =0.05  # resolution in annotation file
+    #     params['dataset'] = 'STARSS2023'
+    #     params['label_sequence_length'] =20
+    #     params['batch_size'] = 512
+    #     params['lr'] /= 2
+    #     params['per_file'] = True
+    #     params['subset'] =  True
+    #     params['model'] = 'SELDConformer'
+    #     params['nb_cnn2d_filt'] = 128 # 64
+    #     params['rnn_size'] = 128 #128
+
+    # elif argv == '2113':
+    #     print("Generate intermediate audio file\n")
+    #     params['quick_test'] = False
+    #     params['data_type'] = 'foa'
+    #     params['multi_accdoa'] = True
+    #     params['data_augmentation'] = False 
+    #     params['synthetic'] = True 
+    #     params['output_format'] = 'multi_accdoa' 
+    #     params['hop_len_s'] = 0.01   
+    #     params['label_hop_len_s'] =0.05  # resolution in annotation file
+    #     params['dataset'] = 'STARSS2023'
+    #     params['label_sequence_length'] =20
+    #     params['batch_size'] = 512
+    #     params['lr'] /= 2
+    #     params['per_file'] = True
+    #     params['subset'] =  True
+    #     params['model'] = 'SELDConformer'
+    #     params['nb_cnn2d_filt'] = 128 # 64
+    #     params['rnn_size'] = 128 #128
+
+    # elif argv == '210':
+    #     print("Generate intermediate audio file\n")
+    #     params['quick_test'] = False
+    #     params['data_type'] = 'foa'
+    #     params['multi_accdoa'] = True
+    #     params['data_augmentation'] = False 
+    #     params['synthetic'] = True 
+    #     params['output_format'] = 'multi_accdoa' 
+    #     params['hop_len_s'] = 0.01   
+    #     params['label_hop_len_s'] =0.05  # resolution in annotation file
+    #     params['dataset'] = 'STARSS2023'
+    #     params['label_sequence_length'] =20
+    #     params['batch_size'] = 512
+    #     params['lr'] /= 2
+    #     params['per_file'] = True
+    #     params['subset'] =  True
+    #     params['model'] = 'SELDConformer'
+    #     params['f_pool_size'] = [2,2,2]
+
+    # elif argv == '220':
+    #     print("Generate intermediate audio file\n")
+    #     params['quick_test'] = False
+    #     params['data_type'] = 'foa'
+    #     params['multi_accdoa'] = True
+    #     params['data_augmentation'] = False 
+    #     params['synthetic'] = True 
+    #     params['output_format'] = 'multi_accdoa' 
+    #     params['hop_len_s'] = 0.01   
+    #     params['label_hop_len_s'] =0.05  # resolution in annotation file
+    #     params['dataset'] = 'STARSS2023'
+    #     params['label_sequence_length'] =20
+    #     params['batch_size'] = 256
+    #     params['lr'] /= 4
+    #     params['per_file'] = True
+    #     params['subset'] =  True
+    #     # params['model'] = 'SELDConformer'
+    #     params['nb_cnn2d_filt'] = 128 # 64
+    #     params['rnn_size'] = 128 #128
+        
+    #     params['model'] = 'CST_Conformer'
+    #     params['FreqAtten'] = True
+    #     params['ChAtten_ULE'] = True
+    #     params['CMT_block'] = True
+    #     params["f_pool_size"] = [1,2,2] 
+    #     params['t_pool_size'] = [1,1, params['feature_label_resolution']]
+
+
+    elif argv == '3': # not per file, batch size, 128 bins, 1s 
+        print("Seld conformer with weights initiate\n")
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        # params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 128 #128
+
+        params['init_weights'] = True
+        params['use_efficientnet'] = False
+        params['use_se_block'] = False
+
+    elif argv == '31': # new conformer
+        print("Seld conformer with weights initiate\n")
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        # params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 128 #256
+
+        params['init_weights'] = False
+        params['use_efficientnet'] = False
+        params['use_se_block'] = False
+
     elif argv == '32':
-        print("FOA + single ACCDOA\n + gammatone")
-        params['quick_test'] = False
-        params['filter'] = 'gammatone'
-        params['data_type'] = 'foa'
-        params['multi_accdoa'] = False 
-        params['output_format'] = 'single_accdoa'
-
-    elif argv == '3':
-        print("FOA + multi ACCDOA\n")
+        print("Generate intermediate audio file\n")  # 8 layer conformer
         params['quick_test'] = False
         params['data_type'] = 'foa'
         params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
         params['output_format'] = 'multi_accdoa' 
-        params['finetune_mode'] = False
         params['hop_len_s'] = 0.01   
         params['label_hop_len_s'] =0.05  # resolution in annotation file
         params['dataset'] = 'STARSS2023'
-        params['label_sequence_length'] =20 
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        # params['lr'] /= 2
 
-    elif argv == '31':
-        print("FOA + multi ACCDOA\n")
-        params['quick_test'] = False
-        params['dataset'] = 'foa'
-        params['multi_accdoa'] = True
-        params['output_format'] = 'multi_accdoa'
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 128 #128
+        params['cf_num_cfs'] = 8
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
 
 
-    elif argv == '4':
-        print("MIC + GCC + ACCDOA\n")
-        params['quick_test'] = False
-        params['data_type'] = 'mic'
-        params['use_salsalite'] = False
-        params['multi_accdoa'] = False
-
-    elif argv == '5':
-        print("MIC + SALSA + ACCDOA\n")
-        params['quick_test'] = False
-        params['data_type'] = 'mic'
-        params['use_salsalite'] = True
-        params['multi_accdoa'] = False
-
-    elif argv == '6':
-        print("MIC + GCC + multi ACCDOA\n")
-        params['pretrained_model_weights'] = '6_1_dev_split0_multiaccdoa_mic_gcc_model.h5'
-        params['quick_test'] = False
-        params['data_type'] = 'mic'
-        params['use_salsalite'] = False
-        params['multi_accdoa'] = True
-
-    elif argv == '7':
-        print("MIC + SALSA + multi ACCDOA\n")
-        params['quick_test'] = False
-        params['data_type'] = 'mic'
-        params['use_salsalite'] = True
-        params['multi_accdoa'] = True
-
-    elif argv == '999':
-        print("QUICK TEST MODE\n")
-        params['quick_test'] = True
-
-    elif argv == '250':
-        params['hop_len_s'] = 0.01
-        params['label_hop_len_s'] =0.05  # resolution in annotation file
-        params['dataset'] = 'STARSS2023'
-        params['quick_test'] = False
-
-    elif argv == '256':
-        print("FOA + multi ACCDOA\n")
+    elif argv == '33':
+        print("Generate intermediate audio file\n")  # 4 layer conformer 
         params['quick_test'] = False
         params['data_type'] = 'foa'
         params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
         params['output_format'] = 'multi_accdoa' 
-        # params['finetune_mode'] = False
-        params['hop_len_s'] = 0.005      # related to win_len
-        params['label_hop_len_s'] =0.05  # resolution in annotation file, predict twice for every second 
-        params['dataset'] = 'STARSS2023'
-        params['label_sequence_length'] =20 
-        params['nb_mel_bins'] = 256 
-
-    elif argv == '512':
-        print("FOA + multi ACCDOA\n")
-        params['quick_test'] = False
-        params['data_type'] = 'foa'
-        params['multi_accdoa'] = True
-        params['output_format'] = 'multi_accdoa' 
-        # params['finetune_mode'] = False
         params['hop_len_s'] = 0.01   
         params['label_hop_len_s'] =0.05  # resolution in annotation file
         params['dataset'] = 'STARSS2023'
-        params['label_sequence_length'] =20  
-        params['nb_mel_bins'] = 512 
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        # params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 128 #128
+        params['cf_num_cfs'] = 4
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+    
+    elif argv == '34':
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+
+    elif argv == '35':
+        print("Generate intermediate audio file\n")  # resnet 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        # params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 128 #128
+
+        params['feature_extraction'] = 'resnetf'
+        params['use_se_block'] = False
+
+    elif argv == '36':
+        print("Generate intermediate audio file\n")  # resnet 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        # params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 128 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = True
+
+    elif argv == '37':
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = True
+
+    elif argv == '38':
+        params['filter'] = 'bark'  #TODO
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
 
 
+    elif argv == '39':
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
 
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = True
+
+    elif argv == '310':
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        # params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+        params['cf_ffn_dim'] = 1024 # 512
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = True
+
+    elif argv == '311':
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        # params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+        params['cf_num_cfs'] = 1
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = True
+
+    elif argv == '312': # pe
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        params['positoncal_encoding'] = True
+        params['learnable_pe'] = False 
+        # params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 128 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+    elif argv == '313':  # learnable pe
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 1024
+        params['positoncal_encoding'] = True
+        params['learnable_pe'] = True
+        # params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 64 # 64
+        params['rnn_size'] = 128 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+
+    elif argv == '314':
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+        params['cf_num_cfs'] = 1 
+
+    elif argv == '315':
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['cf_num_layers'] = 4 
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+
+
+    elif argv == '316':
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['cf_num_heads'] = 8
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+
+    elif argv == '317':
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+        params['residual_connections'] = True
+        
+
+    elif argv == '318':
+        print("Generate intermediate audio file\n")  # rnn size 256 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+        params['mhsa'] = True
+
+    elif argv == '319':
+        print("Generate intermediate audio file\n")  # use scconv block 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+        params['scconv'] = True
+
+    elif argv == '320':
+        print("Generate intermediate audio file\n")  # use scconv block 
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        # params['subset'] =  True
+        params['model'] = 'SELDConformer'
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+
+    elif argv == '321':
+        print("Generate intermediate audio file\n")  # GSELD
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'GSELD'
+
+
+        params['tcn_channels'] = [20, 64, 128, 64, 20]
+        params['tcn_kernel_size'] = 4
+
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+
+    elif argv == '322':
+        print("Generate intermediate audio file\n")  #GSELD kernel size 3
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'GSELD'
+
+
+        params['tcn_channels'] = [20, 64, 128, 64, 20]
+        params['tcn_kernel_size'] = 3
+
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+
+
+    elif argv == '323':
+        print("Generate intermediate audio file\n")  #GSELD  [20, 32, 64, 32, 20] [20, 40, 80, 40, 20]
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'GSELD'
+
+
+        params['tcn_channels'] = [20, 32, 64, 32, 20]
+        params['tcn_kernel_size'] = 3
+
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+
+    elif argv == '324':
+        print("Generate intermediate audio file\n")  #GSELD  [20, 40, 80, 40, 20]
+        params['quick_test'] = False
+        params['data_type'] = 'foa'
+        params['multi_accdoa'] = True
+        params['data_augmentation'] = False 
+        params['synthetic'] = True 
+        params['output_format'] = 'multi_accdoa' 
+        params['hop_len_s'] = 0.01   
+        params['label_hop_len_s'] =0.05  # resolution in annotation file
+        params['dataset'] = 'STARSS2023'
+        params['label_sequence_length'] =20
+        params['batch_size'] = 512
+        params['lr'] /= 2
+
+        params['per_file'] = True
+        params['subset'] =  True
+        params['model'] = 'GSELD'
+
+
+        params['tcn_channels'] = [20, 40, 80, 40, 20]
+        params['tcn_kernel_size'] = 3
+
+        params['nb_cnn2d_filt'] = 128 # 64
+        params['rnn_size'] = 256 #128
+
+        params['feature_extraction'] = 'conv'
+        params['use_se_block'] = False
+
+        
     else:
         print('ERROR: unknown argument {}'.format(argv))
         exit()
@@ -337,8 +1303,10 @@ def get_params(argv='1'):
     params['unique_classes'] = 13
     
     # print params 
+    print('-------------------info of parameters-------------------')
     for key, value in params.items():
         print("\t{}: {}".format(key, value))
+    print('---------------end of info parameters-------------------')
     return params
 
 

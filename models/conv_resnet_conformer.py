@@ -41,7 +41,7 @@ class ResNetConformer(nn.Module):
             torchaudio.models.Conformer(
                 input_dim= resnet_out_shape[0],
                 num_heads=4,  # 可以根据需要调整
-                ffn_dim=1024,  # 可以根据需要调整
+                ffn_dim=512,  # 可以根据需要调整
                 num_layers=2,  # 可以根据需要调整
                 depthwise_conv_kernel_size=31
             )
@@ -55,6 +55,21 @@ class ResNetConformer(nn.Module):
         self.output = nn.Linear(512, out_shape[2])
         self.doa_act = nn.Tanh()
         self.dist_act = nn.ReLU()
+        self.initialize_weights()
+        
+    def initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv1d):
+                torch.nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    torch.nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                torch.nn.init.xavier_normal_(m.weight)
+                if m.bias is not None:
+                    torch.nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
+                torch.nn.init.constant_(m.weight, 1)
+                torch.nn.init.constant_(m.bias, 0)
 
 
     def forward(self, x):

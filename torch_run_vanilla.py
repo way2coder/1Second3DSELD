@@ -110,6 +110,34 @@ def polar_to_cartesian(azi,ele):
 
 
 
+def train_epoch(data_generator, optimizer, model, criterion, params, device):
+    nb_train_batches, train_loss = 0, 0.
+    model.train()
+    for values in data_generator.generate():
+        # load one batch of data
+        if len(values) == 2:
+            data, target = values
+            data, target = torch.tensor(data).to(device).float(), torch.tensor(target).to(device).float()
+            optimizer.zero_grad()
+            output = model(data)
+        elif len(values) == 3:
+            data, vid_feat, target = values
+            data, vid_feat, target = torch.tensor(data).to(device).float(), torch.tensor(vid_feat).to(device).float(), torch.tensor(target).to(device).float()
+            optimizer.zero_grad()
+            output = model(data, vid_feat)
+
+        loss = criterion(output, target)
+        loss.backward()
+        optimizer.step()
+        
+        train_loss += loss.item()
+        nb_train_batches += 1
+        if params['quick_test'] and nb_train_batches == 4:
+            break
+
+    train_loss /= nb_train_batches
+
+    return train_loss
 
 
 def test_epoch(data_generator, model, criterion, dcase_output_folder, params, device):
@@ -248,6 +276,7 @@ def test_epoch(data_generator, model, criterion, dcase_output_folder, params, de
 def train_epoch(train_loader, optimizer, model, criterion, params, device):
     nb_train_batches, train_loss = 0, 0.
     model.train()  # set to train model 
+    
     for batch_idx, values in enumerate(train_loader):
         # load one batch of data
         if len(values) == 2: 
@@ -278,36 +307,37 @@ def train_epoch(train_loader, optimizer, model, criterion, params, device):
     return train_loss
 
 
-def validation_epoch(train_loader, optimizer, model, criterion, params, device,     ):
+def validation_epoch(train_loader, optimizer, model, criterion, params, device     ):
     nb_train_batches, train_loss = 0, 0.
-    model.train()  # set to train model 
-    for batch_idx, values in enumerate(train_loader):
-        # load one batch of data
-        if len(values) == 2: 
-            # breakpoint()
-            data, target = values   # data always be (batchsize, 7, 250, 64)  target: single_accdoa(batchsize, 50, 52) multi_accdoa (batchsize, 50, 6, 5, 13)
-            # data, target = torch.tensor(data).clone().detach().to(device).float(), torch.tensor(target).clone().detach().to(device).float()
-            data, target = data.to(device), target.to(device)
-            optimizer.zero_grad()
-            # breakpoint()
-            output = model(data)  # TODO:model should be modify 
-        elif len(values) == 3:
-            data, vid_feat, target = values
-            # data, vid_feat, target = torch.tensor(data).to(device).float(), torch.tensor(vid_feat).to(device).float(), torch.tensor(target).to(device).float()
-            optimizer.zero_grad()
-            output = model(data, vid_feat)
+    model.eval()  # set to evaluation model 
+    with torch.no_grad(): 
+        for batch_idx, values in enumerate(train_loader):
+            # load one batch of data
+            if len(values) == 2: 
+                # breakpoint()
+                data, target = values   # data always be (batchsize, 7, 250, 64)  target: single_accdoa(batchsize, 50, 52) multi_accdoa (batchsize, 50, 6, 5, 13)
+                # data, target = torch.tensor(data).clone().detach().to(device).float(), torch.tensor(target).clone().detach().to(device).float()
+                data, target = data.to(device), target.to(device)
+                # optimizer.zero_grad()
+                # breakpoint()
+                output = model(data)  # TODO:model should be modify 
+            elif len(values) == 3:
+                data, vid_feat, target = values
+                # data, vid_feat, target = torch.tensor(data).to(device).float(), torch.tensor(vid_feat).to(device).float(), torch.tensor(target).to(device).float()
+                # optimizer.zero_grad()
+                output = model(data, vid_feat)
 
-        
-        loss = criterion(output, target)
-        loss.backward()
-        optimizer.step()
-        
-        train_loss += loss.item()
-        nb_train_batches += 1
-        if params['quick_test'] and nb_train_batches == 4:
-            break
-    # final loss equals accmulative train_loss divid nb_tarin_batches
-    train_loss /= nb_train_batches
+            
+            loss = criterion(output, target)
+            # loss.backward()
+            # optimizer.step()
+            
+            train_loss += loss.item()
+            nb_train_batches += 1
+            if params['quick_test'] and nb_train_batches == 4:
+                break
+        # final loss equals accmulative train_loss divid nb_tarin_batches
+        train_loss /= nb_train_batches
 
     return train_loss
 
@@ -423,9 +453,9 @@ def main(argv):
             val_splits = [[4]]
             train_splits = [[1, 2, 3]] 
         elif '2023' in params['dataset_dir']:
-            test_splits = [[4]]
-            val_splits = [[4]]
-            train_splits = [[1, 2, 3]] 
+            test_splits = [[2]]
+            val_splits = [[2]]
+            train_splits = [[1, 3]] 
         elif '2024' in params['dataset_dir']:
             test_splits = [[4]]
             val_splits = [[4]]
@@ -457,7 +487,7 @@ def main(argv):
         cls_feature_class.create_folder(models_dir)
 
         best_models = []
-        max_models = 5  # 保存模型的最大数量
+        max_models = 3  # 保存模型的最大数量
 
         logging.info(f"all the models will be saved in : {models_dir}")
                      
@@ -468,10 +498,11 @@ def main(argv):
         logging.info('Loading training dataset:')
         
         train_dataset = SELDDataset(params, 'train')
-        train_loader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=False, num_workers= 8 ) 
+        train_loader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=False, num_workers= 16) 
 
-        validation_dataset = SELDDataset(params, 'val')
-        validation_loader = DataLoader(validation_dataset, batch_size=params['batch_size'], shuffle=False, num_workers=8) 
+        # validation_dataset = SELDDataset(params, 'val')
+        # validation_loader = DataLoader(validation_dataset, batch_size=params['batch_size'], shuffle=False, num_workers=16) 
+
 
 
         # data_gen_train = cls_data_generator.DataGenerator(
@@ -480,7 +511,7 @@ def main(argv):
 
         logging.info('Loading validation dataset:')
         data_gen_val = cls_data_generator.DataGenerator(
-            params=params, split=val_splits[split_cnt], shuffle=False, per_file=True
+            params=params, split=val_splits[split_cnt], shuffle=False, per_file=params['per_file'], mode = 'test'
         ) # init a class that generator the validation data split = [4] ,room4 
 
         # Collect i/o data size and load model configuration, load model weights to model
@@ -507,6 +538,10 @@ def main(argv):
             params['dropout_rate'], params['nb_cnn2d_filt'], params['f_pool_size'], params['t_pool_size'], params['rnn_size'], params['nb_self_attn_layers'],
             params['fnn_size']))
         logging.info(model)
+        total_params = sum(p.numel() for p in model.parameters())
+        logging.info(f'total parameters of the model:{total_params}')
+        
+
 
         # Dump results in DCASE output format for calculating final scores
         
@@ -516,7 +551,7 @@ def main(argv):
         logging.info('Dumping recording-wise val results in: {}'.format(dcase_output_val_folder))
 
         # Initialize evaluation metric class, use a class to evaluate the params
-        score_obj = ComputeSELDResults(params)  #cls_compute_seld_results
+        score_obj = ComputeSELDResults(params, train_dataset._feat_cls._new_label_dir)  #cls_compute_seld_results
 
         # start training
         best_val_epoch = -1
@@ -548,33 +583,36 @@ def main(argv):
             # ---------------------------------------------------------------------
 
             start_time = time.time()
-            val_loss = validation_epoch(validation_loader, optimizer, model, criterion, params, device)   #(train_loader, optimizer, model, criterion, params, device):
+            val_loss = test_epoch(data_gen_val, model, criterion, dcase_output_val_folder, params, device)
+            # val_loss = test_epoch(data_gen_val, optimizer, model, criterion, params, device)   #(train_loader, optimizer, model, criterion, params, device):
             # Calculate the DCASE 2021 metrics - Location-aware detection and Class-aware localization scores
             val_time = time.time() - start_time
             
             start_time = time.time()
-            # val_ER, val_F, val_LE, val_dist_err, val_rel_dist_err, val_LR, val_seld_scr, classwise_val_scr = score_obj.get_SELD_Results(dcase_output_val_folder)
+            val_ER, val_F, val_LE, val_dist_err, val_rel_dist_err, val_LR, val_seld_scr, classwise_val_scr = score_obj.get_SELD_Results(dcase_output_val_folder)
 
             metric_time = time.time() - start_time
 
             schedular.step()
-            best_val_loss = val_loss if val_loss < best_val_loss else best_val_loss
+            # best_val_loss = val_loss if val_loss < best_val_loss else best_val_loss
+            best_F = val_F if val_F > best_F else best_F
             # metrics_history = update_metrics_history(metrics_history, val_F, val_LE, val_rel_dist_err)
             # F1score: val_F DOA angular error:val_LE relative distance error: val_rel_dist_err
             
-            if epoch_cnt > 100:
-                if (len(best_models) < max_models or val_loss < best_models[-1][0]) :
+            if epoch_cnt > 10:
+                if (len(best_models) < max_models or val_F > best_models[-1][0]) :
+                    best_val_epoch, best_ER, best_F, best_LE, best_LR, best_seld_scr, best_dist_err = epoch_cnt, val_ER, val_F, val_LE, val_LR, val_seld_scr, val_dist_err
                     # 保存新的模型
                     model_path = os.path.join(models_dir, str(epoch_cnt) + '.h5')
                     # model_name.replace('.h5', f'_epoch{epoch_cnt}_loss{val_loss:.4f}.h5')
                     torch.save(model.state_dict(), model_path)
                     # 更新最佳模型列表
                     if len(best_models) < max_models:
-                        best_models.append((val_loss, model_path))
+                        best_models.append((val_F, model_path))
                     else:
                         # 删除最差的模型
-                        os.remove(best_models[-1][1])
-                        best_models[-1] = (val_loss, model_path)
+                        os.remove(best_models[0][1])
+                        best_models[0] = (val_F, model_path)
                     
                     # 保持列表排序
                     best_models.sort(key=lambda x: x[0])
@@ -584,7 +622,7 @@ def main(argv):
 
             # logging.info stats
             # logging.info(
-            #     'epoch: {}, time: {:0.2f}/{:0.2f}/{:0.2f}, '
+            #     'epoch: {}, time: {:0.3f}/{:0.2f}/{:0.2f}, '
             #     'train_loss: {:0.4f}, val_loss: {:0.4f}, '
             #     'F/AE/Dist_err/Rel_dist_err/SELD: {}, '
             #     'best_val_epoch: {} {}'.format(
@@ -595,7 +633,7 @@ def main(argv):
             #         '({:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f})'.format( best_F, best_LE, best_dist_err, best_rel_dist_err, best_seld_scr))
             # )
             logging.info(
-                f'epoch: {epoch_cnt}, time: {train_time:0.2f}/{ val_time:0.2f}/{metric_time:0.2f}, '
+                f'epoch: {epoch_cnt}, train_time/val_time/metric_time: {train_time:0.2f}/{ val_time:0.2f}/{metric_time:0.2f}, '
                 f'train_loss: {train_loss:0.4f}, val_loss: {val_loss:0.4f}, '
                 # 'F/AE/Dist_err/Rel_dist_err/SELD: {}, '
                 # 'best_val_epoch: {} {}'.format(
@@ -603,8 +641,9 @@ def main(argv):
                 #     train_loss, val_loss,
                 #     '{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}'.format(val_F, val_LE, val_dist_err, val_rel_dist_err, val_seld_scr),
                 #     best_val_epoch,
-                #     '({:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.2f})'.format( best_F, best_LE, best_dist_err, best_rel_dist_err, best_seld_scr))
-                f'best_val_epoch: {best_val_loss} '
+                #     '({:0.2f}/{:0.2f}/{:0.2f}/{:0.2f}/{:0.3f})'.format( best_F, best_LE, best_dist_err, best_rel_dist_err, best_seld_scr))
+                f'current_metircs: val_F, val_LE, val_dist_err, val_rel_dist_err, val_seld_scr{val_F:0.4f}/{val_LE:0.3f}/{val_dist_err:0.3f}/{val_rel_dist_err:0.3f}/{val_seld_scr:0.3f} '
+                f'best_metrics:best_F, best_LE, best_dist_err, best_rel_dist_err, best_seld_scr{best_F:0.4f}/{best_LE:0.3f}/{best_dist_err:0.3f}/{best_rel_dist_err:0.3f}/{best_seld_scr:0.3f}'
             )
 
             if patience_cnt > params['nb_early_stop_patience']:
@@ -614,59 +653,61 @@ def main(argv):
         # Evaluate on unseen test data
         # ---------------------------------------------------------------------
         logging.info('Load best model weights')
-        for model_name in  best_models:
-            logging.info(f'model name {model_name}')
-            model_name = model_name[1]
-            model.load_state_dict(torch.load(model_name, map_location='cpu'))
-            
-            logging.info('Loading unseen test dataset:')
-            data_gen_test = cls_data_generator.DataGenerator(
-                params=params, split=test_splits[split_cnt], shuffle=False, per_file=True
-            )
-            test_dataset = SELDDataset(params, 'test')
-            test_loader = DataLoader(test_dataset, batch_size=params['batch_size'], shuffle=True) 
+        # for model_name in  best_models:
+        model_name = best_models[-1][1]
+        logging.info(f'model name {model_name}')
+        model_name = best_models[-1][1]
+        model.load_state_dict(torch.load(model_name, map_location='cpu'))  # TODO:Move the model to GPU to accelerate the inference speed.
+        model.to(device)
 
-            # Dump results in DCASE output format for calculating final scores  os.path.join(params['dcase_output_dir'], f'{unique_hash_str}',f'{unique_name}_test')
-            dcase_output_test_folder = os.path.join(params['dcase_output_dir'], f"{unique_hash_str}_{params['model']}",f'{unique_name}_test')
-            cls_feature_class.delete_and_create_folder(dcase_output_test_folder)
-            logging.info('Dumping recording-wise test results in: {}'.format(dcase_output_test_folder))
+        logging.info('Loading unseen test dataset:')
+        data_gen_test = cls_data_generator.DataGenerator(
+            params=params, split=test_splits[split_cnt], shuffle=False, per_file=params['per_file'] ,mode = 'test'
+        )
+        # test_dataset = SELDDataset(params, 'test')
+        # test_loader = DataLoader(test_dataset, batch_size=params['batch_size'], shuffle=True) 
+        
+        # Dump results in DCASE output format for calculating final scores  os.path.join(params['dcase_output_dir'], f'{unique_hash_str}',f'{unique_name}_test')
+        dcase_output_test_folder = os.path.join(params['dcase_output_dir'], f"{unique_hash_str}_{params['model']}",f'{unique_name}_test')
+        cls_feature_class.delete_and_create_folder(dcase_output_test_folder)
+        logging.info('Dumping recording-wise test results in: {}'.format(dcase_output_test_folder))
 
-            # the results will be saved into *_test file
-            test_loss = test_epoch(data_gen_test, model, criterion, dcase_output_test_folder, params, device)
-            # 2024 challenge only focus test_F, test_LE,  test_dist_err 
+        # the results will be saved into *_test file
+        test_loss = test_epoch(data_gen_test, model, criterion, dcase_output_test_folder, params, device)
+        # 2024 challenge only focus test_F, test_LE,  test_dist_err 
 
-            use_jackknife=True
-            test_ER, test_F, test_LE, test_dist_err, test_rel_dist_err, test_LR, test_seld_scr, classwise_test_scr = score_obj.get_SELD_Results(dcase_output_test_folder, is_jackknife=use_jackknife )
+        use_jackknife=True
+        test_ER, test_F, test_LE, test_dist_err, test_rel_dist_err, test_LR, test_seld_scr, classwise_test_scr = score_obj.get_SELD_Results(dcase_output_test_folder, is_jackknife=use_jackknife )
 
-            logging.info('SELD score (early stopping metric): {:0.2f} {}'.format(test_seld_scr[0] if use_jackknife else test_seld_scr, '[{:0.2f}, {:0.2f}]'.format(test_seld_scr[1][0], test_seld_scr[1][1]) if use_jackknife else ''))
-            logging.info('SED metrics: F-score: {:0.1f} {}'.format(100* test_F[0]  if use_jackknife else 100* test_F, '[{:0.2f}, {:0.2f}]'.format(100* test_F[1][0], 100* test_F[1][1]) if use_jackknife else ''))
-            logging.info('DOA metrics: Angular error: {:0.1f} {}'.format(test_LE[0] if use_jackknife else test_LE, '[{:0.2f} , {:0.2f}]'.format(test_LE[1][0], test_LE[1][1]) if use_jackknife else ''))
-            logging.info('Distance metrics: {:0.2f} {}'.format(test_dist_err[0] if use_jackknife else test_dist_err, '[{:0.2f} , {:0.2f}]'.format(test_dist_err[1][0], test_dist_err[1][1]) if use_jackknife else ''))
-            logging.info('Relative Distance metrics: {:0.2f} {}'.format(test_rel_dist_err[0] if use_jackknife else test_rel_dist_err, '[{:0.2f} , {:0.2f}]'.format(test_rel_dist_err[1][0], test_rel_dist_err[1][1]) if use_jackknife else ''))
+        logging.info('SELD score (early stopping metric): {:0.3f} {}'.format(test_seld_scr[0] if use_jackknife else test_seld_scr, '[{:0.3f}, {:0.3f}]'.format(test_seld_scr[1][0], test_seld_scr[1][1]) if use_jackknife else ''))
+        logging.info('SED metrics: F-score: {:0.1f} {}'.format(100* test_F[0]  if use_jackknife else 100* test_F, '[{:0.3f}, {:0.3f}]'.format(100* test_F[1][0], 100* test_F[1][1]) if use_jackknife else ''))
+        logging.info('DOA metrics: Angular error: {:0.1f} {}'.format(test_LE[0] if use_jackknife else test_LE, '[{:0.3f} , {:0.3f}]'.format(test_LE[1][0], test_LE[1][1]) if use_jackknife else ''))
+        logging.info('Distance metrics: {:0.3f} {}'.format(test_dist_err[0] if use_jackknife else test_dist_err, '[{:0.3f} , {:0.3f}]'.format(test_dist_err[1][0], test_dist_err[1][1]) if use_jackknife else ''))
+        logging.info('Relative Distance metrics: {:0.3f} {}'.format(test_rel_dist_err[0] if use_jackknife else test_rel_dist_err, '[{:0.3f} , {:0.3f}]'.format(test_rel_dist_err[1][0], test_rel_dist_err[1][1]) if use_jackknife else ''))
 
-            if params['average']=='macro':
-                logging.info('Classwise results on unseen test data')
-                logging.info('Class\tF\tAE\tdist_err\treldist_err\tSELD_score')
-                for cls_cnt in range(params['unique_classes']):
-                    logging.info('{}\t{:0.2f} {}\t{:0.2f} {}\t{:0.2f} {}\t{:0.2f} {}\t{:0.2f} {}'.format(
-                        cls_cnt,
+        if params['average']=='macro':
+            logging.info('Classwise results on unseen test data')
+            logging.info('Class\tF\tAE\tdist_err\treldist_err\tSELD_score')
+            for cls_cnt in range(params['unique_classes']):
+                logging.info('{}\t{:0.3f} {}\t{:0.3f} {}\t{:0.3f} {}\t{:0.3f} {}\t{:0.3f} {}'.format(
+                    cls_cnt,
 
-                        classwise_test_scr[0][1][cls_cnt] if use_jackknife else classwise_test_scr[1][cls_cnt],
-                        '[{:0.2f}, {:0.2f}]'.format(classwise_test_scr[1][1][cls_cnt][0],
-                                                    classwise_test_scr[1][1][cls_cnt][1]) if use_jackknife else '',
-                        classwise_test_scr[0][2][cls_cnt] if use_jackknife else classwise_test_scr[2][cls_cnt],
-                        '[{:0.2f}, {:0.2f}]'.format(classwise_test_scr[1][2][cls_cnt][0],
-                                                    classwise_test_scr[1][2][cls_cnt][1]) if use_jackknife else '',
-                        classwise_test_scr[0][3][cls_cnt] if use_jackknife else classwise_test_scr[3][cls_cnt],
-                        '[{:0.2f}, {:0.2f}]'.format(classwise_test_scr[1][3][cls_cnt][0],
-                                                    classwise_test_scr[1][3][cls_cnt][1]) if use_jackknife else '',
-                        classwise_test_scr[0][4][cls_cnt] if use_jackknife else classwise_test_scr[4][cls_cnt],
-                        '[{:0.2f}, {:0.2f}]'.format(classwise_test_scr[1][4][cls_cnt][0],
-                                                    classwise_test_scr[1][4][cls_cnt][1]) if use_jackknife else '',
+                    classwise_test_scr[0][1][cls_cnt] if use_jackknife else classwise_test_scr[1][cls_cnt],
+                    '[{:0.3f}, {:0.3f}]'.format(classwise_test_scr[1][1][cls_cnt][0],
+                                                classwise_test_scr[1][1][cls_cnt][1]) if use_jackknife else '',
+                    classwise_test_scr[0][2][cls_cnt] if use_jackknife else classwise_test_scr[2][cls_cnt],
+                    '[{:0.3f}, {:0.3f}]'.format(classwise_test_scr[1][2][cls_cnt][0],
+                                                classwise_test_scr[1][2][cls_cnt][1]) if use_jackknife else '',
+                    classwise_test_scr[0][3][cls_cnt] if use_jackknife else classwise_test_scr[3][cls_cnt],
+                    '[{:0.3f}, {:0.3f}]'.format(classwise_test_scr[1][3][cls_cnt][0],
+                                                classwise_test_scr[1][3][cls_cnt][1]) if use_jackknife else '',
+                    classwise_test_scr[0][4][cls_cnt] if use_jackknife else classwise_test_scr[4][cls_cnt],
+                    '[{:0.3f}, {:0.3f}]'.format(classwise_test_scr[1][4][cls_cnt][0],
+                                                classwise_test_scr[1][4][cls_cnt][1]) if use_jackknife else '',
 
-                        classwise_test_scr[0][6][cls_cnt] if use_jackknife else classwise_test_scr[6][cls_cnt],
-                        '[{:0.2f}, {:0.2f}]'.format(classwise_test_scr[1][6][cls_cnt][0],
-                                                    classwise_test_scr[1][6][cls_cnt][1]) if use_jackknife else ''))
+                    classwise_test_scr[0][6][cls_cnt] if use_jackknife else classwise_test_scr[6][cls_cnt],
+                    '[{:0.3f}, {:0.3f}]'.format(classwise_test_scr[1][6][cls_cnt][0],
+                                                classwise_test_scr[1][6][cls_cnt][1]) if use_jackknife else ''))
 
 
 
@@ -685,6 +726,7 @@ if __name__ == "__main__":
     
     # get_seld_result(sys.argv)
     try:
+        
         main(sys.argv)
     except (ValueError, IOError) as e:
         sys.exit(e)

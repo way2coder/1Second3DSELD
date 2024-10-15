@@ -79,7 +79,8 @@ class SeldModel(torch.nn.Module):
         # x.shape batchsize, 64, 50, 2
         x = x.transpose(1, 2).contiguous() # barchsize 50 64 2 
         x = x.view(x.shape[0], x.shape[1], -1).contiguous() # 128 50 128 
-        (x, _) = self.gru(x) # 128 50 256 
+        (x, _) = self.gru(x) # 128 50 256
+        torch.cuda.empty_cache()  # TODO
         x = torch.tanh(x) # 
         x = x[:, :, x.shape[-1]//2:] * x[:, :, :x.shape[-1]//2] # element-wise multipucation to reduce dimision, integrate information, enhance non-linearity
 
@@ -88,7 +89,7 @@ class SeldModel(torch.nn.Module):
             x, _ = self.mhsa_block_list[mhsa_cnt](x_attn_in, x_attn_in, x_attn_in) 
             x = x + x_attn_in
             x = self.layer_norm_list[mhsa_cnt](x)
-
+        torch.cuda.empty_cache()  # TODO
         if vid_feat is not None:
             vid_feat = vid_feat.view(vid_feat.shape[0], vid_feat.shape[1], -1)  # b x 50 x 49
             vid_feat = self.visual_embed_to_d_model(vid_feat)
@@ -113,7 +114,7 @@ class SeldModel(torch.nn.Module):
         doa2 = torch.cat((doa1, dist), dim=3)
 
         doa2 = doa2.reshape((doa.size(0), doa.size(1), -1))
-        
+        torch.cuda.memory_summary(device=None, abbreviated=False)
         return doa2
 
 

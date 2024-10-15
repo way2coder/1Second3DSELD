@@ -53,6 +53,7 @@ class SELDDataset(Dataset):
         self._train_test = train_test
         self._splits = splits
         self._overlapping_events = overlapping_events
+        self._data_augmentation = params['data_augmentation']
 
 
         self._feature_seq_len = params['feature_sequence_length'] #  250 params['feature_sequence_length'] = params['label_sequence_length'] * feature_label_resolution # 50 * 5 
@@ -72,6 +73,7 @@ class SELDDataset(Dataset):
         self._label_len = None  # total length of label - DOA + SED
         self._doa_len = None    # DOA label length 
         self._nb_classes = self._feat_cls.get_nb_classes()  # 14
+        
 
 
         self.cache = LRUCache(capacity=10)
@@ -84,26 +86,29 @@ class SELDDataset(Dataset):
 
         self._filewise_frames = self._feat_cls._filewise_frames   # all the features and labels of favoured splits are stored in the self.feat_cls._filewise_frames, when assign the train, valid, test.
         # TODO filter the file frame spilts 
-        self._filewise_frames = self._filter_filewise_frames(self._filewise_frames, self._dataset, self._train_test)
+        self._filewise_frames = self._filter_filewise_frames(self._filewise_frames, self._dataset, self._train_test, self._data_augmentation) 
     
         self._get_chunks_state_dict(self._feat_dir, self._label_dir, train_test=self._train_test,splits=self._splits , overlapping_events=self._overlapping_events)
+        print(f'-----info of selddataset  split{self._train_test}----------')
+        print(f'len of self._filewise_frames :{len(self._filewise_frames)}')
+        print(f'len of self.chunks:{len(self.chunks)}')
+        print('---------------end----------------------')
+
         
-    def _filter_filewise_frames(self, filewise_names, dataset, train_test):
+    def _filter_filewise_frames(self, filewise_names, dataset, train_test, data_agumentation):
         # breakpoint()
         filtered_dict = {}
-        if dataset in ['STARSS2023']:
-            if train_test == 'train':
-                for key, value in filewise_names.items():
-                    # 只添加不包含'fold4'的键
-                    if 'fold3' in key:
-                        filtered_dict[key] = value
-            elif train_test == 'test' or train_test == 'val':
-                for key, value in filewise_names.items():
-                    # 只添加不包含'fold4'的键
-                    if 'fold4' in key:
-                        filtered_dict[key] = value
-        else:
-            pass
+        if train_test == 'train':
+            for key, value in filewise_names.items():
+                # 只添加不包含'fold4'的键
+                # if 'fold1' in key or 'fold2' in key or 'fold3' in key:
+                if 'fold1' in key:
+                    filtered_dict[key] = value
+        elif train_test == 'test' or train_test == 'val':
+            for key, value in filewise_names.items():
+                # 只添加不包含'fold4'的键
+                if 'fold4' in key:
+                    filtered_dict[key] = value
         return filtered_dict
 
 

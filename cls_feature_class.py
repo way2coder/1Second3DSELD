@@ -2,6 +2,7 @@
 #
 
 from cls_vid_features import VideoFeatures
+import parameters
 from PIL import Image
 import os
 import numpy as np
@@ -24,6 +25,8 @@ import csv
 import pandas as pd
 import sys
 import random 
+import shutil
+import pickle
 
 def nCr(n, r):
     return math.factorial(n) // math.factorial(r) // math.factorial(n-r)
@@ -44,11 +47,14 @@ class FeatureClass:
         self._dataset_combination = '{}_{}'.format(params['data_type'], 'eval' if is_eval else 'dev')  # foa_dev 
         self._aud_dir = os.path.join(self._dataset_dir, self._dataset_combination) if self._dataset in ['STARSS2023'] else self._dataset_dir #'../Dataset/STARSS2023\\foa_dev'
 
+        self._subset = params['subset']
+
         self._desc_dir = None if is_eval else (os.path.join(self._dataset_dir, 'metadata_dev') if self._dataset in ['STARSS2023'] else self._dataset_dir) # '../Dataset/STARSS2023\\metadata_dev'
 
         self._vid_dir = os.path.join(self._dataset_dir, 'video_{}'.format('eval' if is_eval else 'dev')) # 
         # Output directories
         self._data_augmentation = params['data_augmentation']
+        self._sound_scaper = params['sound_scaper']
         self._preprocessing_type = params['preprocessing_type']
 
         self._feat_dir = None
@@ -62,8 +68,8 @@ class FeatureClass:
         # Local parameters
 
         self._fs = params['fs']  # 24000, 44100? 
-        self._hop_len_s = params['hop_len_s']
-        self._hop_len = int(self._fs * self._hop_len_s) # 480
+        self._hop_len_s = params['hop_len_s'] # 0.01
+        self._hop_len = int(self._fs * self._hop_len_s) # 240
 
         self._label_hop_len_s_STARSS = params['label_hop_len_s_STARSS']
         self._label_hop_len_s = params['label_hop_len_s']  # 0.1 second
@@ -71,8 +77,8 @@ class FeatureClass:
         self._label_frame_res = self._fs / float(self._label_hop_len) # 10.0 
         self._segment_length= params['segment_length']
 
-        self._win_len = 2 * self._hop_len # 960
-        self._nfft = self._next_greater_power_of_2(self._win_len) # 1024 
+        self._win_len = 2 * self._hop_len # 480
+        self._nfft = self._next_greater_power_of_2(self._win_len) # 512
         self._feature_sequence_length = params['feature_sequence_length']  # 
 
         self._data_type = params['data_type'] # foa
@@ -124,6 +130,7 @@ class FeatureClass:
         self._filewise_frames = {}  # 文件名： 特征时间帧，以及label时间帧
         self._label_dir = self.get_label_dir()  # feat_label_hnet\foa_dev_multi_accdoa_0.1_label
         self._new_label_dir = self.get_new_label_dir()
+        # breakpoint()
 
     def get_frame_stats(self):
         # Initialized the self._filewise_frames = {}, what this dictionary stored is {'fold4_room23_mix001': [3035, 607]}
@@ -135,17 +142,39 @@ class FeatureClass:
         print('\t\taud_dir {}\n\t\tdesc_dir {}\n\t\tfeat_dir {}'.format(
             self._aud_dir, self._desc_dir, self._feat_dir))
         
+        
         if self._dataset in ['STARSS2023']:
-            for sub_folder in os.listdir(self._aud_dir):
+            for sub_folder in os.listdir(self._aud_dir): 
+                if self._sound_scaper == False and  sub_folder == 'foa_generate':
+                    continue
                 loc_aud_folder = os.path.join(self._aud_dir, sub_folder)   #'../Dataset/STARSS2023\\foa_dev\\dev-test-sony'
-                for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)): 
+                for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
                     wav_filename = '{}.wav'.format(file_name.split('.')[0])
                     with contextlib.closing(wave.open(os.path.join(loc_aud_folder, wav_filename), 'r')) as f:
                         audio_len = f.getnframes()
                     nb_feat_frames = int(audio_len / float(self._hop_len))   # 1456800 / 480
                     nb_label_frames = int(audio_len / float(self._label_hop_len))   #  1456800 / 2400 
-                    self._filewise_frames[file_name.split('.')[0]] = [nb_feat_frames, nb_label_frames] # {'fold4_room23_mix001': [3035, 607]}
-        
+                    file_name = file_name.split('.')[0]
+                    self._filewise_frames[file_name] = [nb_feat_frames, nb_label_frames] # {'fold4_room23_mix001': [3035, 607]}
+                    if self._data_augmentation == True:
+                        self._filewise_frames[file_name + '_channel_swapping'] = [nb_feat_frames, nb_label_frames]
+                        self._filewise_frames[file_name + '_frequency_masking'] = [nb_feat_frames, nb_label_frames]
+            if self._subset :
+                sample_file_list_path = self.get_sampled_feat_dir_norm()
+
+                with open(sample_file_list_path, 'rb') as f:
+                    file_list = pickle.load(f)
+
+                # breakpoint()
+                stripped_file_list = [filename.rstrip('.npy') for filename in file_list]
+                filtered_filewise_frames = {}
+                for key, value in self._filewise_frames.items():
+                    if key in stripped_file_list:
+                        filtered_filewise_frames[key] = value
+                self._filewise_frames = filtered_filewise_frames
+
+                
+
         elif self._dataset in ['ANSYN', 'ASIRD', 'L3DAS21']:
             for sub_folder in os.listdir(self._aud_dir):
                 if 'desc' not in sub_folder:
@@ -162,6 +191,9 @@ class FeatureClass:
                     nb_label_frames = int(audio_len / float(self._label_hop_len))   #  1456800 / 2400 
                     file_name_key = file_name.split('.')[0] + ov_split    # 'test_0_desc_30_100_ov1_split1'
                     self._filewise_frames[file_name_key] = [nb_feat_frames, nb_label_frames] # {'fold4_room23_mix001': [3035, 607]}
+                    if self._data_augmentation == True:
+                        self._filewise_frames[file_name + '_channel_swapping'] = [nb_feat_frames, nb_label_frames]
+                        self._filewise_frames[file_name + '_frequency_masking'] = [nb_feat_frames, nb_label_frames]
         
         return
 
@@ -176,7 +208,7 @@ class FeatureClass:
         return 2 ** (x - 1).bit_length()
 
     def _spectrogram(self, audio_input, _nb_frames):
-     
+        # n_fft = 512,  hop_length = 0.01, self._win_len = 0.02
         _nb_ch = audio_input.shape[1]
         nb_bins = self._nfft // 2
         spectra = []
@@ -253,6 +285,7 @@ class FeatureClass:
         audio_spec = self._spectrogram(audio_in, nb_feat_frames)  # (2235, 513, 4) time, frequency, channel
         
         return audio_spec 
+    
     # OUTPUT LABELs
     def get_polar_labels_for_file(self, _desc_file, _nb_label_frames):
         '''
@@ -443,8 +476,9 @@ class FeatureClass:
         file_name = f"{os.path.basename(_wav_path).split('.')[0]}.csv"
         wav_filename = '{}.wav'.format(file_name.split('.')[0])
         label_path = os.path.join(self._label_dir, '{}_frequency_masking.npy'.format(wav_filename.split('.')[0]))
-
-        if os.path.exists(_feat_path) and os.path.exists(label_path):
+        desc_path = os.path.join(self._new_label_dir, '{}_frequency_masking.csv'.format(wav_filename.split('.')[0]))
+        shutil.copy(os.path.join(self._new_label_dir, file_name), desc_path)
+        if os.path.exists(_feat_path) and os.path.exists(label_path) and os.path.exists(desc_path) :
             print(f"Skipping {_feat_path} {label_path} as the .npy file of features and labels are already extracted.")
         else:
             spect = self._get_spectrogram_for_file(_wav_path) #  (2235, 513, 4) time, frequency, channel
@@ -525,8 +559,9 @@ class FeatureClass:
         file_name = f"{os.path.basename(_wav_path).split('.')[0]}.csv"
         wav_filename = '{}.wav'.format(file_name.split('.')[0])
         label_path = os.path.join(self._label_dir, '{}_channel_swapping.npy'.format(wav_filename.split('.')[0]))
+        desc_path = os.path.join(self._new_label_dir, '{}_channel_swapping.csv'.format(wav_filename.split('.')[0]))
 
-        if os.path.exists(_feat_path) and os.path.exists(label_path):
+        if os.path.exists(_feat_path) and os.path.exists(label_path) and os.path.exists(desc_path):
             print(f"Skipping {_feat_path} as features and labels are already extracted.")
         else:
             # load audio file, store the attribute of this file in self._filewise_frames
@@ -549,7 +584,7 @@ class FeatureClass:
             #'../Dataset/STARSS2023\\metadata_dev\\dev-test-sony\\fold4_room23_mix001.csv'            
             # Core function: random channel swapping on this audio file
             audio_in, desc_file_polar = self._random_channel_swapping(audio_in, desc_file_path)
-            
+            self.write_output_format_file(desc_path, desc_file_polar, 'dict_to_polar')
             spect = self._spectrogram(audio_in, nb_feat_frames)  # (2235, 513, 4) time, frequency, channel
             feat = None
             if not self._use_salsalite:
@@ -571,7 +606,7 @@ class FeatureClass:
                 np.save(_feat_path, feat)  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix002.npy
 
             desc_file = self.convert_output_format_polar_to_cartesian(desc_file_polar)    # len(desc_file)
-        
+
             if self._output_format == 'multi_accdoa': 
                 label_mat = self.get_adpit_labels_for_file(desc_file, nb_label_frames)
             elif self._output_format == 'single_accdoa':
@@ -674,8 +709,9 @@ class FeatureClass:
         print(file_name)
         wav_filename = '{}.wav'.format(file_name.split('.')[0])
         label_path = os.path.join(self._label_dir, '{}.npy'.format(wav_filename.split('.')[0]))
-
-        if os.path.exists(_feat_path) and os.path.exists(label_path):
+        desc_path = os.path.join(self._new_label_dir, '{}.csv'.format(wav_filename.split('.')[0]))
+ 
+        if os.path.exists(_feat_path) and os.path.exists(label_path) and os.path.exists(desc_path):
             print(f"Skipping {_feat_path} {label_path} as the .npy file of features and labels are already extracted.")
 
         else:
@@ -773,9 +809,14 @@ class FeatureClass:
         arg_list = []    
     # if self._dataset in ['STARSS2023']:
         for sub_folder in os.listdir(self._aud_dir): # dev-test-sony, dev-test-tau, dev-train-sony
+            if sub_folder != 'foa':
+                continue 
             loc_aud_folder = os.path.join(self._aud_dir, sub_folder)  
             for file_cnt, file_name in enumerate(os.listdir(loc_aud_folder)):
-                wav_filename = '{}.wav'.format(file_name.split('.')[0])
+                file_prefix = file_name.split('.')[0]
+                if file_prefix not in self._filewise_frames:
+                    continue 
+                wav_filename = '{}.wav'.format(file_prefix)
                 wav_path = os.path.join(loc_aud_folder, wav_filename) # ../Dataset/STARSS2023\\foa_dev\\dev-test-sony\\fold4_room23_mix001.wav
                 feat_path = os.path.join(self._feat_dir, '{}.npy'.format(wav_filename.split('.')[0]))  # ../Dataset/STARSS2023/feat_label_hnet/foa_dev\\fold4_room23_mix001.npy
                 # process only when the file is not exsit
@@ -783,7 +824,7 @@ class FeatureClass:
                 feat_path_channel_swapping = os.path.join(self._feat_dir, f'{wav_filename.split(".")[0]}_channel_swapping.npy')
                 
                 self.extract_file_feature((file_cnt, wav_path, feat_path)) # 提取vanilla wav文件的特征
-                if self._data_augmentation is True :
+                if self._data_augmentation is True and file_name[4] is '3':
                     self.extract_file_feature_frequency_masking((file_cnt, wav_path, feat_path_frequency_masking)) # 提取单个wav文件的特征
                     self.extract_file_feature_channel_swapping((file_cnt, wav_path, feat_path_channel_swapping)) # 提取单个wav文件的特征
                 else:
@@ -868,37 +909,42 @@ class FeatureClass:
         create_folder(self._new_label_dir)  
         if self._dataset in ['STARSS2023']:
             for sub_folder in os.listdir(self._desc_dir):
+                if sub_folder != 'foa':
+                    continue 
                 loc_desc_folder = os.path.join(self._desc_dir, sub_folder)
-                for file_cnt, file_name in enumerate(os.listdir(loc_desc_folder)):   
+                for file_cnt, file_name in enumerate(os.listdir(loc_desc_folder)):  
                     # for each file(like fold4_room23_mix001.csv), process it into label hop frames according to the self._filewise_frames
-                    wav_filename = '{}.wav'.format(file_name.split('.')[0])
+                    file_prefix = file_name.split('.')[0]
+                    if file_prefix not in self._filewise_frames:
+                        continue
+                    wav_filename = '{}.wav'.format(file_prefix)
 
-                    nb_label_frames = self._filewise_frames[file_name.split('.')[0]][1]  # already tailored for the 
+                    nb_label_frames = self._filewise_frames[file_prefix][1]  # already tailored for the 
                     
                     csv_df = self.generate_standard_label_df(loc_desc_folder, file_name)
                     new_csv_path = os.path.join(self._new_label_dir, file_name)
                     csv_df.to_csv(new_csv_path, index=False, header=False)
                     print(f'{new_csv_path} has been generated')
 
-        elif self._dataset in ['ANSYN', 'ASIRD', 'L3DAS21']:
-            for sub_folder in os.listdir(self._dataset_dir):
-                if 'desc' not in sub_folder: 
-                    continue 
-                # modified_subfolder = os.path.join(self._label_dir, sub_folder)
-                # create_folder(modified_subfolder)
-                # subfolder 'desc_ov1_split2'
-                ov_split = sub_folder.split('desc')[-1]
-                relative_wave_folder = 'wav'+ov_split +'_30db'
-                loc_desc_folder = os.path.join(self._desc_dir, sub_folder)   # '../Dataset/ANSYN\\desc_ov1_split1' 
-                for file_cnt, file_name in enumerate(os.listdir(loc_desc_folder)): 
+        # elif self._dataset in ['ANSYN', 'ASIRD', 'L3DAS21']:
+        #     for sub_folder in os.listdir(self._dataset_dir):
+        #         if 'desc' not in sub_folder: 
+        #             continue 
+        #         # modified_subfolder = os.path.join(self._label_dir, sub_folder)
+        #         # create_folder(modified_subfolder)
+        #         # subfolder 'desc_ov1_split2'
+        #         ov_split = sub_folder.split('desc')[-1]
+        #         relative_wave_folder = 'wav'+ov_split +'_30db'
+        #         loc_desc_folder = os.path.join(self._desc_dir, sub_folder)   # '../Dataset/ANSYN\\desc_ov1_split1' 
+        #         for file_cnt, file_name in enumerate(os.listdir(loc_desc_folder)): 
 
-                    wav_filename = '{}.wav'.format(file_name.split('.')[0])
-                    file_name_key = file_name.split('.')[0] + ov_split 
-                    nb_label_frames = self._filewise_frames[file_name_key][1] 
-                    csv_df = self.generate_standard_label_df(loc_desc_folder,file_name)
-                    file_name = wav_filename.split('.')[0] + ov_split +'.csv'
-                    new_csv_path = os.path.join(self._new_label_dir, file_name)
-                    csv_df.to_csv(new_csv_path, index=False, header=False)
+        #             wav_filename = '{}.wav'.format(file_name.split('.')[0])
+        #             file_name_key = file_name.split('.')[0] + ov_split 
+        #             nb_label_frames = self._filewise_frames[file_name_key][1] 
+        #             csv_df = self.generate_standard_label_df(loc_desc_folder,file_name)
+        #             file_name = wav_filename.split('.')[0] + ov_split +'.csv'
+        #             new_csv_path = os.path.join(self._new_label_dir, file_name)
+        #             csv_df.to_csv(new_csv_path, index=False, header=False)
 
         
     
@@ -1421,6 +1467,11 @@ class FeatureClass:
                     # Write Cartesian format output. Since baseline does not estimate track count and distance we use fixed values.
                     _fid.write('{},{},{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[1]), float(_value[2]), float(_value[3]), float(_value[4])))
                     # TODO: What if our system estimates track count and distence (or only one of them)
+        elif _output_format == 'dict_to_polar':
+            for _frame_ind in _output_format_dict.keys():
+                for _value in _output_format_dict[_frame_ind]:
+                    # Write Polar format output. Since baseline does not estimate track count we use fixed values. Write new label file based on new label resolution. The type of
+                    _fid.write('{},{},{},{},{},{}\n'.format(int(_frame_ind), int(_value[0]), 0, float(_value[2]), float(_value[3]), float(_value[4])))
         _fid.close()
 
     def segment_labels(self, _pred_dict, _max_frames):
@@ -1603,14 +1654,27 @@ class FeatureClass:
     def get_normalized_feat_dir(self):
         return os.path.join(
             self._feat_label_dir,
-            "{}_{}_{}seq_length_{}bins_{}s_seglength_{}_{}norm".format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins, int(self._segment_length),self._preprocessing_type,'data_augmentation' if self._data_augmentation is True else 'without_data_augmentation')
+            "{}_{}_{}bins_{}_{}norm{}".format(
+                '{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, 
+                self._filter_type,
+                self._nb_mel_bins,
+                self._preprocessing_type,
+                'dataaug_' if self._data_augmentation is True else '',
+                '_subset' if self._subset is True else ''),
         )
 
+    def get_sampled_feat_dir_norm(self):
+        return '/lab/chengr_lab/12232381/dataset/STARSS2023/feat_label_hnet/foa_dev_gammatone_128bins_iv_7_norm/A_subset_files.pkl'
+    
     def get_unnormalized_feat_dir(self):
         
         return os.path.join(
             self._feat_label_dir,
-            "{}_{}_{}seq_length_{}bins_{}s_seglength_{}_{}".format('{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, self._filter_type,self._feature_sequence_length,self._nb_mel_bins,int(self._segment_length),self._preprocessing_type,'data_augmentation' if self._data_augmentation is True else 'without_data_augmentation')
+            "{}_{}_{}bins_{}".format(
+                '{}_salsa'.format(self._dataset_combination) if (self._dataset=='mic' and self._use_salsalite) else self._dataset_combination, 
+                self._filter_type,
+                self._nb_mel_bins,
+                self._preprocessing_type)
         )
 
     def get_label_dir(self):
@@ -1619,14 +1683,15 @@ class FeatureClass:
         else:
             return os.path.join(
                 self._feat_label_dir,
-                f"{self._dataset_combination}_{self._output_format}_{int(self._label_hop_len_s*1000)}msres_label_without_classes_modifying_{'data_augmentation' if self._data_augmentation is True else 'without_data_augmentation'}"              
+                f"{self._dataset_combination}_{self._output_format}_{int(self._label_hop_len_s*1000)}msres_label_without_classes_modifying{('_' + self._filter_type) if self._data_augmentation is True else ''}"              
         )
+        # f"{self._dataset_combination}_{self._output_format}_{int(self._label_hop_len_s*1000)}msres_label_without_classes_modifying_{'data_augmentation' if self._data_augmentation is True else 'without_data_augmentation'}_{self._filter_type}"              
 
     def get_new_label_dir(self):
 
         return os.path.join(
             self._dataset_dir,
-            f"{int(self._label_hop_len_s * 1000)}ms_labels_csv_without_classes_modifying"               
+            f"{int(self._label_hop_len_s * 1000)}ms_labels_csv_without_classes_modifying_{self._filter_type}"               
         )
 
     def get_normalized_wts_file(self):
@@ -1655,6 +1720,7 @@ class FeatureClass:
 
 
 def create_folder(folder_name):
+
     if not os.path.exists(folder_name):
         print('{} folder does not exist, creating it.'.format(folder_name))
         os.makedirs(folder_name)
@@ -1668,7 +1734,38 @@ def delete_and_create_folder(folder_name):
     os.makedirs(folder_name, exist_ok=True)
 
 
+def main(argv):
+    # Expects one input - task-id - corresponding to the configuration given in the parameter.py file.
+    # Extracts features and labels relevant for the task-id
+    # It is enough to compute the feature and labels once. 
+
+    # use parameter set defined by user
+    task_id = '1' if len(argv) < 2 else argv[1]
+    params = parameters.get_params(task_id)
+
+    # ------------- Extract features and labels for development set -----------------------------
+    dev_feat_cls = FeatureClass(params)
+    dev_feat_cls.get_frame_stats()
+    # # # Extract labels
+    # dev_feat_cls.generate_new_labels()  
+    # dev_feat_cls.extract_all_labels()
+    
+    # breakpoint()
+    # # Extract features and normalize them
+    # breakpoint()
+    # dev_feat_cls.extract_all_features_and_labels()
+    # dev_feat_cls.extract_all_feature_augmentation()
+    # dev_feat_cls.preprocess_features()
 
 
-if __name__ == '__main__':
-    pass 
+    # # Extract visual features
+    # if params['modality'] == 'audio_visual':
+    #     dev_feat_cls.extract_visual_features()
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv))
+    except (ValueError, IOError) as e:
+        sys.exit(e)
+

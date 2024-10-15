@@ -48,7 +48,9 @@ def jackknife_estimation(global_value, partial_estimates, significance_level=0.0
 
 class ComputeSELDResults(object):
     def __init__(self, params, ref_files_folder=None):
+        '''
         
+        '''
         self._desc_dir = ref_files_folder if ref_files_folder is not None else os.path.join(params['dataset_dir'],
                                                                                             'metadata_dev')
         self._nb_classs = params['unique_classes'] 
@@ -65,17 +67,48 @@ class ComputeSELDResults(object):
         # collect reference files, reference labels are the ground truth 
         self._ref_labels = {}
         # 
-        for split in os.listdir(self._desc_dir):
-            for ref_file in os.listdir(os.path.join(self._desc_dir, split)):
-                # Load reference description file
-                gt_dict = self._feat_cls.load_output_format_file(os.path.join(self._desc_dir, split, ref_file), cm2m=True)  # TODO: Reconsider the cm2m conversion
-                gt_dict = self._feat_cls.convert_output_format_polar_to_cartesian(gt_dict)
-                nb_ref_frames = max(list(gt_dict.keys())) 
-                if self.segment_level:
-                    self._ref_labels[ref_file] = [self._feat_cls.segment_labels(gt_dict, nb_ref_frames), nb_ref_frames]
-                else:
-                    self._ref_labels[ref_file] = [self._feat_cls.organize_labels(gt_dict, nb_ref_frames), nb_ref_frames]
-                    ##frame: {class: {track: [x, y, z, dist]}} 
+        if any(os.path.isdir(os.path.join(self._desc_dir, item)) for item in os.listdir(self._desc_dir)):
+            # 如果self._desc_dir包含子目录，执行双层循环
+            for split in os.listdir(self._desc_dir):
+                split_dir = os.path.join(self._desc_dir, split)
+                if os.path.isdir(split_dir):  # 检查是否为子目录
+                    for ref_file in os.listdir(split_dir):
+                        # 加载参考描述文件
+                        ref_file_path = os.path.join(split_dir, ref_file)
+                        gt_dict = self._feat_cls.load_output_format_file(ref_file_path, cm2m=True)  # TODO: Reconsider the cm2m conversion
+                        gt_dict = self._feat_cls.convert_output_format_polar_to_cartesian(gt_dict)
+                        nb_ref_frames = max(list(gt_dict.keys())) 
+                        if self.segment_level:
+                            self._ref_labels[ref_file] = [self._feat_cls.segment_labels(gt_dict, nb_ref_frames), nb_ref_frames]
+                        else:
+                            self._ref_labels[ref_file] = [self._feat_cls.organize_labels(gt_dict, nb_ref_frames), nb_ref_frames]
+                            # frame: {class: {track: [x, y, z, dist]}}
+        else:
+            # 如果self._desc_dir不包含子目录，执行单层循环
+            for ref_file in os.listdir(self._desc_dir):
+                ref_file_path = os.path.join(self._desc_dir, ref_file)
+                if os.path.isfile(ref_file_path):  # 检查是否为文件
+                    # 加载参考描述文件
+                    gt_dict = self._feat_cls.load_output_format_file(ref_file_path, cm2m=True)  # TODO: Reconsider the cm2m conversion
+                    gt_dict = self._feat_cls.convert_output_format_polar_to_cartesian(gt_dict)
+                    nb_ref_frames = max(list(gt_dict.keys())) 
+                    if self.segment_level:
+                        self._ref_labels[ref_file] = [self._feat_cls.segment_labels(gt_dict, nb_ref_frames), nb_ref_frames]
+                    else:
+                        self._ref_labels[ref_file] = [self._feat_cls.organize_labels(gt_dict, nb_ref_frames), nb_ref_frames]
+                        # frame: {class: {track: [x, y, z, dist]}}
+
+        # for split in os.listdir(self._desc_dir):
+        #     for ref_file in os.listdir(os.path.join(self._desc_dir, split)):
+        #         # Load reference description file
+        #         gt_dict = self._feat_cls.load_output_format_file(os.path.join(self._desc_dir, split, ref_file), cm2m=True)  # TODO: Reconsider the cm2m conversion
+        #         gt_dict = self._feat_cls.convert_output_format_polar_to_cartesian(gt_dict)
+        #         nb_ref_frames = max(list(gt_dict.keys())) 
+        #         if self.segment_level:
+        #             self._ref_labels[ref_file] = [self._feat_cls.segment_labels(gt_dict, nb_ref_frames), nb_ref_frames]
+        #         else:
+        #             self._ref_labels[ref_file] = [self._feat_cls.organize_labels(gt_dict, nb_ref_frames), nb_ref_frames]
+        #             ##frame: {class: {track: [x, y, z, dist]}} 
         self._nb_ref_files = len(self._ref_labels) # _nb_ref_files is the number of files that contained by ref folder
         self._average = params['average']
 
@@ -124,13 +157,16 @@ class ComputeSELDResults(object):
             eval = SELD_evaluation_metrics.SELDMetrics(nb_classes=self._feat_cls.get_nb_classes(),
                                     doa_threshold=self._doa_thresh, average=self._average, eval_dist=self.evaluate_distance,
                                     dist_threshold=self._dist_thresh, reldist_threshold=self._reldist_thresh) # 13, 20, macro, True, inf, 1 
-
+        # print(len(pred_files))
         for pred_cnt, pred_file in enumerate(pred_files):
             # Load predicted output format file
             
             'results_audio\\4888ae034c4e7bdc3c8e8b70b9d9d222_SeldModel\\21_1_dev_split0_polar_foa_val'
+            # print(os.path.join(pred_files_path, pred_file))
             pred_dict = self._feat_cls.load_output_format_file_from_prediction_file(os.path.join(pred_files_path, pred_file))  # TODO: why format is transfer from car to polar then polar to car again? 
+            # print(type(pred_dict))
             pred_dict = self._feat_cls.convert_output_format_polar_to_cartesian(pred_dict) # ???? 
+            
             if self.segment_level:
                 pred_labels = self._feat_cls.segment_labels(pred_dict, self._ref_labels[pred_file][1])
                 # pred_labels[segment-index][class-index] := list(frame-cnt-within-segment, azimuth, elevation)
