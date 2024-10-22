@@ -99,10 +99,10 @@ def get_params(argv='1'):
         dataset = 'ANSYN', # ANSYN, ASIRD, L3DAS21, STARSS2023, and this need to be a string 
 
         # FEATURE PARAMS
-        preprocessing_type = 'iv_7', # 'spec_8'
+        preprocessing_type = 'iv_7', # Currently, this system only support iv_7.
         data_augmentation = False, # if this variarble is set to be true, then the function 'dev_feat_cls.extract_all_feature()' will generate all these features
         sound_scaper = False,
-        filter = 'gammatone', # 'mel' / 'gammatone' / 'bark'
+        filter = 'gammatone', # Alternative filter types are: 'mel' / 'gammatone' / 'bark'
         hop_len_s=0.005, # ??
         label_hop_len_s=0.05,  # resolution in annotation file
         label_hop_len_s_STARSS  = 0.1, # resolution in starss annotation file, only need by starss 
@@ -516,91 +516,7 @@ def get_params(argv='1'):
         params['nb_cnn2d_filt'] = 64 # 64
         params['rnn_size'] = 256 #128
 
-    # elif argv == '2112':
-    #     print("Generate intermediate audio file\n")
-    #     params['quick_test'] = False
-    #     params['data_type'] = 'foa'
-    #     params['multi_accdoa'] = True
-    #     params['data_augmentation'] = False 
-    #     params['synthetic'] = True 
-    #     params['output_format'] = 'multi_accdoa' 
-    #     params['hop_len_s'] = 0.01   
-    #     params['label_hop_len_s'] =0.05  # resolution in annotation file
-    #     params['dataset'] = 'STARSS2023'
-    #     params['label_sequence_length'] =20
-    #     params['batch_size'] = 512
-    #     params['lr'] /= 2
-    #     params['per_file'] = True
-    #     params['subset'] =  True
-    #     params['model'] = 'SELDConformer'
-    #     params['nb_cnn2d_filt'] = 128 # 64
-    #     params['rnn_size'] = 128 #128
 
-    # elif argv == '2113':
-    #     print("Generate intermediate audio file\n")
-    #     params['quick_test'] = False
-    #     params['data_type'] = 'foa'
-    #     params['multi_accdoa'] = True
-    #     params['data_augmentation'] = False 
-    #     params['synthetic'] = True 
-    #     params['output_format'] = 'multi_accdoa' 
-    #     params['hop_len_s'] = 0.01   
-    #     params['label_hop_len_s'] =0.05  # resolution in annotation file
-    #     params['dataset'] = 'STARSS2023'
-    #     params['label_sequence_length'] =20
-    #     params['batch_size'] = 512
-    #     params['lr'] /= 2
-    #     params['per_file'] = True
-    #     params['subset'] =  True
-    #     params['model'] = 'SELDConformer'
-    #     params['nb_cnn2d_filt'] = 128 # 64
-    #     params['rnn_size'] = 128 #128
-
-    # elif argv == '210':
-    #     print("Generate intermediate audio file\n")
-    #     params['quick_test'] = False
-    #     params['data_type'] = 'foa'
-    #     params['multi_accdoa'] = True
-    #     params['data_augmentation'] = False 
-    #     params['synthetic'] = True 
-    #     params['output_format'] = 'multi_accdoa' 
-    #     params['hop_len_s'] = 0.01   
-    #     params['label_hop_len_s'] =0.05  # resolution in annotation file
-    #     params['dataset'] = 'STARSS2023'
-    #     params['label_sequence_length'] =20
-    #     params['batch_size'] = 512
-    #     params['lr'] /= 2
-    #     params['per_file'] = True
-    #     params['subset'] =  True
-    #     params['model'] = 'SELDConformer'
-    #     params['f_pool_size'] = [2,2,2]
-
-    # elif argv == '220':
-    #     print("Generate intermediate audio file\n")
-    #     params['quick_test'] = False
-    #     params['data_type'] = 'foa'
-    #     params['multi_accdoa'] = True
-    #     params['data_augmentation'] = False 
-    #     params['synthetic'] = True 
-    #     params['output_format'] = 'multi_accdoa' 
-    #     params['hop_len_s'] = 0.01   
-    #     params['label_hop_len_s'] =0.05  # resolution in annotation file
-    #     params['dataset'] = 'STARSS2023'
-    #     params['label_sequence_length'] =20
-    #     params['batch_size'] = 256
-    #     params['lr'] /= 4
-    #     params['per_file'] = True
-    #     params['subset'] =  True
-    #     # params['model'] = 'SELDConformer'
-    #     params['nb_cnn2d_filt'] = 128 # 64
-    #     params['rnn_size'] = 128 #128
-        
-    #     params['model'] = 'CST_Conformer'
-    #     params['FreqAtten'] = True
-    #     params['ChAtten_ULE'] = True
-    #     params['CMT_block'] = True
-    #     params["f_pool_size"] = [1,2,2] 
-    #     params['t_pool_size'] = [1,1, params['feature_label_resolution']]
 
 
     elif argv == '3': # not per file, batch size, 128 bins, 1s 
@@ -817,7 +733,7 @@ def get_params(argv='1'):
         params['lr'] /= 2
 
         params['per_file'] = True
-        params['subset'] =  True
+        # params['subset'] =  True
         params['model'] = 'SELDConformer'
         params['nb_cnn2d_filt'] = 128 # 64
         params['rnn_size'] = 256 #128

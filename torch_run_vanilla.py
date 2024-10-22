@@ -341,37 +341,7 @@ def validation_epoch(train_loader, optimizer, model, criterion, params, device  
 
     return train_loss
 
-# def update_metrics_history(metrics_history, val_F, val_LE, val_rel_dist_err):
-#     """
-#     将当前 epoch 的指标添加到历史指标中
-#     :param metrics_history: 历史指标的 NumPy 数组
-#     :param val_F: 当前 epoch 的 F-score
-#     :param val_LE: 当前 epoch 的 DOA 角度误差
-#     :param val_rel_dist_err: 当前 epoch 的相对距离误差
-#     :return: 更新后的历史指标 NumPy 数组
-#     """
-#     new_metrics = np.array([[val_F, val_LE, val_rel_dist_err]])
-#     return np.vstack([metrics_history, new_metrics])
 
-# def compute_cumulative_rank(metrics_history):
-#     """
-#     根据历史指标计算每个 epoch 的累计排名
-#     :param metrics_history: 历史指标的 NumPy 数组
-#     :return: 每个 epoch 的累计排名
-#     """
-#     ranks = np.empty_like(metrics_history)
-    
-#     # F-score 越大越好，所以取负数后排序
-#     ranks[:, 0] = np.argsort(np.argsort(-metrics_history[:, 0]))
-#     # DOA 角度误差越小越好
-#     ranks[:, 1] = np.argsort(np.argsort(metrics_history[:, 1]))
-#     # 相对距离误差越小越好
-#     ranks[:, 2] = np.argsort(np.argsort(metrics_history[:, 2]))
-    
-#     # 累积排名
-#     cumulative_ranks = np.sum(ranks, axis=1)
-    
-#     return cumulative_ranks
 
 def should_save_model(val_F, val_LE, val_rel_dist_err, best_F, best_LE, best_rel_dist_err):
 
@@ -431,8 +401,7 @@ def main(argv):
         logging.info("\t{}: {}".format(key, value))
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
-    # torch.autograd.set_detect_anomaly(True) 用于开启自动求导过程中的异常检测功能。
-    # 该功能可以帮助我们更容易地发现和定位导致自动求导过程出错的代码位置。
+    # torch.autograd.set_detect_anomaly(True) 
     torch.autograd.set_detect_anomaly(True)
 
     # Training setup
@@ -487,7 +456,7 @@ def main(argv):
         cls_feature_class.create_folder(models_dir)
 
         best_models = []
-        max_models = 3  # 保存模型的最大数量
+        max_models = 3  # 保存模型的最大数量 Max number of models saved in the list
 
         logging.info(f"all the models will be saved in : {models_dir}")
                      
@@ -602,19 +571,19 @@ def main(argv):
             if epoch_cnt > 10:
                 if (len(best_models) < max_models or val_F > best_models[-1][0]) :
                     best_val_epoch, best_ER, best_F, best_LE, best_LR, best_seld_scr, best_dist_err = epoch_cnt, val_ER, val_F, val_LE, val_LR, val_seld_scr, val_dist_err
-                    # 保存新的模型
+                    # Save the new model
                     model_path = os.path.join(models_dir, str(epoch_cnt) + '.h5')
                     # model_name.replace('.h5', f'_epoch{epoch_cnt}_loss{val_loss:.4f}.h5')
                     torch.save(model.state_dict(), model_path)
-                    # 更新最佳模型列表
+                    #Update the model list
                     if len(best_models) < max_models:
                         best_models.append((val_F, model_path))
                     else:
-                        # 删除最差的模型
+                        # Remove the worst model
                         os.remove(best_models[0][1])
                         best_models[0] = (val_F, model_path)
                     
-                    # 保持列表排序
+                    # Sort the model list
                     best_models.sort(key=lambda x: x[0])
                     patience_cnt = 0
                 else:

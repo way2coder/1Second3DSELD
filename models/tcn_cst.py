@@ -305,18 +305,7 @@ class GSELD(nn.Module):
 
 
 if __name__ == '__main__':
-    # 初始化模型
 
-
-    # 输出结果
-    # x = torch.rand(128, 100, 45)  
-    # avg_pool = nn.AvgPool1d(kernel_size=5, stride=5)  # 根据需要调整kernel_size和stride
-    # x_pooled = avg_pool(x.transpose(1, 2)).transpose(1, 2)  # transpose是因为nn.AvgPool1d默认作用于最后一个维度
-    # print(x_pooled.shape)
-    # try:
-    #     sys.exit(main(sys.argv))
-    # except (ValueError, IOError) as e:
-    #     sys.exit(e)
     pass
 
     

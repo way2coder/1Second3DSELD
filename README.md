@@ -57,8 +57,8 @@ The repository is organized as follows:
 1. **Clone the Repository**
 
    ```bash 
-   git clone https://github.com/yourusername/short-time-seld.git #
-   cd short-time-seld
+   git clone https://github.com/way2coder/DCASE2024.git #
+   cd DCASE2024
    ```
 
 2. **Create a Conda Environment**
@@ -94,10 +94,9 @@ We use the [[DCASE2024 Task 3] Synthetic SELD mixtures for baseline training](ht
 
    Download the development and evaluation datasets from the DCASE challenge website and place them in the `data/` directory. Set the parameter: datasets_dir_dic to add path for your dataset in `parameters.py`, so does the  parameter:feat_label_dir_dic which saves all your labels.npy and features.npy. 
 
-   ```bash
+   <!-- ```bash
    mkdir data
-   # Instructions or script to download the dataset
-   ```
+   ``` -->
 
 2. **Generate new labels with fine resolution and Extract Audio Features**
 
@@ -111,6 +110,16 @@ We use the [[DCASE2024 Task 3] Synthetic SELD mixtures for baseline training](ht
 3. **Data Augmentation (Optional)**
 
    Apply data augmentation techniques if needed, unfortunately we do not implement augmetation.
+
+## Scripts' Number
+The scripts' number of `parameters.py` are as follows.
+
+|  Model |  Scripts' Number|Filter Type|Pamerers(M)|
+|  ----  | ----  |---|---|
+| SCConv CST Former | 14 |params['filter']|0.57|
+| CST former  | 15|params['filter']|0.54|
+|Conv-Conformer|38|params['filter']|14.39|
+|SELD2024|1|params['filter']|0.84|
 
 ## Training and Inference
 
@@ -126,6 +135,9 @@ python train_torch_vanilla.py 1
 ### Monitoring Training and Test 
 
 The training and test metrics and losses will be put into the `results_audio/` folder, and each unique setting in `parameter.py` will generate a unique hash path to your process. So does the checkpoints to the `models_audio/`. You can also use TensorBoard to monitor training progress.
+
+
+
 
 ## Acknowledgements 
 Most of our codes come from the DCASE2024 baseline system[1], and the CST-former model code come from the official implementation of CST-former[2]. And the code of SCConv directly comes from the unoffical implementation[3].
